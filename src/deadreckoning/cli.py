@@ -14,13 +14,21 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
 from deadreckoning.canonical import content_hash
-from deadreckoning.chaos import ChaosDisabledError
-from deadreckoning.config import Config, ConfigError, load_config
-from deadreckoning.health import REMEDIATION, FailureClass
+from deadreckoning.cli_chaos import chaos
+from deadreckoning.cli_support import (
+    ConfigOption,
+    JsonOption,
+    emit,
+    fail,
+    load,
+    open_node,
+    stderr,
+    stdout,
+)
+from deadreckoning.health import REMEDIATION
 from deadreckoning.node import Node
 from deadreckoning.records import IdentityState, RecordKind
 from deadreckoning.runtime import SCHEMA_VERSION
@@ -31,38 +39,7 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
-
-_stdout = Console()
-_stderr = Console(stderr=True)
-
-ConfigOption = Annotated[Path, typer.Option("--config", "-c", help="Path to dr.toml.")]
-JsonOption = Annotated[bool, typer.Option("--json", help="Machine readable output.")]
-
-
-def _fail(message: str) -> None:
-    _stderr.print(f"[red]error[/red] {message}")
-    raise typer.Exit(code=2)
-
-
-def _load(config_path: Path) -> tuple[Config, Path]:
-    try:
-        config = load_config(config_path)
-    except ConfigError as exc:
-        _fail(str(exc))
-        raise AssertionError("unreachable") from exc
-    return config, config_path.resolve().parent
-
-
-def _open(config_path: Path) -> Node:
-    config, base = _load(config_path)
-    return Node.open(config, base)
-
-
-def _emit(payload: Any, as_json: bool, render: Any) -> None:
-    if as_json:
-        _stdout.print_json(json.dumps(payload, default=str))
-    else:
-        render(payload)
+app.command()(chaos)
 
 
 @app.command()
@@ -74,7 +51,7 @@ def init(
     as_json: JsonOption = False,
 ) -> None:
     """Create the data directory, the database, and this node's genesis record."""
-    loaded, base = _load(config)
+    loaded, base = load(config)
     if node_id:
         loaded = loaded.model_copy(
             update={"node": loaded.node.model_copy(update={"node_id": node_id})}
@@ -84,7 +61,7 @@ def init(
     with Node.open(loaded, base) as node:
         existing = node.store.head(node.node_id)
         if existing is not None:
-            _fail(
+            fail(
                 f"{data_dir} already holds {node.store.count()} record(s) for node"
                 f" {node.node_id!r}. Refusing to write a second genesis record."
             )
@@ -109,16 +86,16 @@ def init(
         }
 
     def render(p: dict[str, Any]) -> None:
-        _stdout.print(f"initialised node [bold]{p['node_id']}[/bold] at {p['data_dir']}")
-        _stdout.print(f"genesis record {p['genesis_record_id']}, mode {p['mode']}")
+        stdout.print(f"initialised node [bold]{p['node_id']}[/bold] at {p['data_dir']}")
+        stdout.print(f"genesis record {p['genesis_record_id']}, mode {p['mode']}")
 
-    _emit(payload, as_json, render)
+    emit(payload, as_json, render)
 
 
 @app.command()
 def status(config: ConfigOption = Path("dr.toml"), as_json: JsonOption = False) -> None:
     """Mode, health, and why. Needs no network and no model."""
-    with _open(config) as node:
+    with open_node(config) as node:
         node.reassess_mode()
         health = node.monitor.vector
         payload = {
@@ -156,8 +133,8 @@ def status(config: ConfigOption = Path("dr.toml"), as_json: JsonOption = False) 
             if p["pending_mode"]
             else ""
         )
-        _stdout.print(f"[bold]{p['node_id']}[/bold]  mode [bold]{p['mode']}[/bold]{pending}")
-        _stdout.print(f"time trust {p['time_trust']}   records {p['records']}")
+        stdout.print(f"[bold]{p['node_id']}[/bold]  mode [bold]{p['mode']}[/bold]{pending}")
+        stdout.print(f"time trust {p['time_trust']}   records {p['records']}")
         table = Table(box=None, pad_edge=False)
         for column in ("dependency", "type", "state", "breaker", "last class", "note"):
             table.add_column(column, overflow="fold")
@@ -171,9 +148,9 @@ def status(config: ConfigOption = Path("dr.toml"), as_json: JsonOption = False) 
                 dep["failure_class"] or "",
                 dep["remediation"],
             )
-        _stdout.print(table)
+        stdout.print(table)
 
-    _emit(payload, as_json, render)
+    emit(payload, as_json, render)
 
 
 @app.command(name="log")
@@ -188,8 +165,8 @@ def log_command(
 ) -> None:
     """Read the log."""
     if kind is not None and kind not in set(RecordKind):
-        _fail(f"unknown record kind {kind!r}. Known kinds: {', '.join(sorted(RecordKind))}")
-    with _open(config) as dr:
+        fail(f"unknown record kind {kind!r}. Known kinds: {', '.join(sorted(RecordKind))}")
+    with open_node(config) as dr:
         rows = list(
             dr.store.iter_records(
                 node_id=node,
@@ -203,7 +180,7 @@ def log_command(
 
     def render(_: Any) -> None:
         if not rows:
-            _stdout.print("[dim]no records match[/dim]")
+            stdout.print("[dim]no records match[/dim]")
             return
         table = Table(box=None, pad_edge=False)
         for column in ("stamp", "kind", "mode", "subject", "id"):
@@ -216,9 +193,9 @@ def log_command(
                 record.subject or "",
                 record.id,
             )
-        _stdout.print(table)
+        stdout.print(table)
 
-    _emit(payload, as_json, render)
+    emit(payload, as_json, render)
 
 
 @app.command()
@@ -228,10 +205,10 @@ def show(
     as_json: JsonOption = False,
 ) -> None:
     """Show one record in full, with the record before and after it on its chain."""
-    with _open(config) as dr:
+    with open_node(config) as dr:
         record = dr.store.get(record_id)
         if record is None:
-            _fail(f"no record with id {record_id!r}")
+            fail(f"no record with id {record_id!r}")
             raise AssertionError("unreachable")
         chain = list(dr.store.iter_records(node_id=record.node_id))
         position = next(i for i, r in enumerate(chain) if r.id == record.id)
@@ -244,21 +221,21 @@ def show(
         }
 
     def render(p: dict[str, Any]) -> None:
-        _stdout.print_json(json.dumps(p["record"], indent=2, default=str))
-        _stdout.print(
+        stdout.print_json(json.dumps(p["record"], indent=2, default=str))
+        stdout.print(
             f"[dim]position {p['position']} on {record.node_id}"
             f" | previous {p['previous']} | next {p['next']}[/dim]"
         )
         if not p["hash_recomputes"]:
-            _stderr.print("[red]this record does not match its own hash[/red]")
+            stderr.print("[red]this record does not match its own hash[/red]")
 
-    _emit(payload, as_json, render)
+    emit(payload, as_json, render)
 
 
 @app.command()
 def verify(config: ConfigOption = Path("dr.toml"), as_json: JsonOption = False) -> None:
     """Verify the hash chain of every node present in this store."""
-    with _open(config) as dr:
+    with open_node(config) as dr:
         results = dr.store.verify_all()
         counts = {n: sum(1 for _ in dr.store.iter_records(node_id=n)) for n in results}
     payload = {
@@ -276,23 +253,23 @@ def verify(config: ConfigOption = Path("dr.toml"), as_json: JsonOption = False) 
 
     def render(p: dict[str, Any]) -> None:
         if not p["nodes"]:
-            _stdout.print("[dim]no records to verify[/dim]")
+            stdout.print("[dim]no records to verify[/dim]")
             return
         for entry in p["nodes"]:
             if entry["ok"]:
-                _stdout.print(
+                stdout.print(
                     f"[green]ok[/green] {entry['node_id']}: {entry['records']} record(s) verified"
                 )
             else:
                 broken: dict[str, Any] = entry["break"]
-                _stdout.print(
+                stdout.print(
                     f"[red]BREAK[/red] {entry['node_id']} at position {broken['position']},"
                     f" record {broken['record_id']}: {broken['reason']}"
                 )
-                _stdout.print(f"       expected {broken['expected']}")
-                _stdout.print(f"       found    {broken['found']}")
+                stdout.print(f"       expected {broken['expected']}")
+                stdout.print(f"       found    {broken['found']}")
 
-    _emit(payload, as_json, render)
+    emit(payload, as_json, render)
     if not payload["ok"]:
         raise typer.Exit(code=1)
 
@@ -309,7 +286,7 @@ def manifest(config: ConfigOption = Path("dr.toml"), as_json: JsonOption = False
     from deadreckoning.manifest import build_manifest, manifest_hash, render_table
     from deadreckoning.tools.registry import ToolRegistry
 
-    with _open(config) as node:
+    with open_node(config) as node:
         node.reassess_mode()
         registry = ToolRegistry()
         built = build_manifest(
@@ -326,84 +303,12 @@ def manifest(config: ConfigOption = Path("dr.toml"), as_json: JsonOption = False
         payload = {"manifest": built, "manifest_hash": manifest_hash(built)}
 
     def render(p: dict[str, Any]) -> None:
-        _stdout.print(render_table(p["manifest"]))
-        _stdout.print(f"\n[dim]manifest_hash {p['manifest_hash']}[/dim]")
+        stdout.print(render_table(p["manifest"]))
+        stdout.print(f"\n[dim]manifest_hash {p['manifest_hash']}[/dim]")
         if not p["manifest"]["tools"]:
-            _stdout.print("[dim]no tools registered yet; they arrive with the demo tool set[/dim]")
+            stdout.print("[dim]no tools registered yet; they arrive with the demo tool set[/dim]")
 
-    _emit(payload, as_json, render)
-
-
-@app.command()
-def chaos(
-    dependency: Annotated[
-        str | None, typer.Argument(help="Dependency to affect. Omit with --restore-all.")
-    ] = None,
-    config: ConfigOption = Path("dr.toml"),
-    fail: Annotated[str | None, typer.Option("--fail", help="Failure class to inject.")] = None,
-    latency: Annotated[int | None, typer.Option("--latency", help="Milliseconds to add.")] = None,
-    for_seconds: Annotated[
-        float | None, typer.Option("--for", help="Lift the fault automatically after this long.")
-    ] = None,
-    restore: Annotated[
-        bool, typer.Option("--restore", help="Lift this dependency's fault.")
-    ] = False,
-    restore_all: Annotated[
-        bool, typer.Option("--restore-all", help="Lift every fault, in one derivation.")
-    ] = False,
-    as_json: JsonOption = False,
-) -> None:
-    """Inject a fault, and record that it was injected.
-
-    Everything here is written to the log as an injection, so a recording can
-    never be mistaken for a natural outage.
-    """
-    if fail is not None and fail not in set(FailureClass):
-        _fail(f"unknown failure class {fail!r}. Known: {', '.join(sorted(FailureClass))}")
-    if not restore_all and dependency is None:
-        _fail("name a dependency, or pass --restore-all")
-
-    with _open(config) as node:
-        try:
-            if restore_all:
-                lifted = node.lift_faults(None)
-                payload: dict[str, Any] = {"lifted": lifted, "mode": str(node.mode)}
-            elif restore:
-                assert dependency is not None
-                lifted = node.lift_faults(dependency)
-                payload = {"lifted": lifted, "mode": str(node.mode)}
-            else:
-                assert dependency is not None
-                node.arm_fault(
-                    dependency,
-                    failure_class=FailureClass(fail) if fail else None,
-                    latency_ms=latency,
-                    for_seconds=for_seconds,
-                )
-                payload = {
-                    "armed": dependency,
-                    "failure_class": fail,
-                    "latency_ms": latency,
-                    "mode": str(node.mode),
-                    "state": str(node.monitor.get(dependency).state),
-                }
-        except ChaosDisabledError as exc:
-            _fail(str(exc))
-            raise AssertionError("unreachable") from exc
-        except KeyError as exc:
-            _fail(f"{exc.args[0]}")
-            raise AssertionError("unreachable") from exc
-
-    def render(p: dict[str, Any]) -> None:
-        if "armed" in p:
-            what = p["failure_class"] or f"{p['latency_ms']} ms latency"
-            _stdout.print(f"injected [yellow]{what}[/yellow] on {p['armed']}")
-            _stdout.print(f"{p['armed']} is now {p['state']}; mode {p['mode']}")
-        else:
-            lifted = ", ".join(p["lifted"]) or "nothing"
-            _stdout.print(f"restored {lifted}; mode {p['mode']}")
-
-    _emit(payload, as_json, render)
+    emit(payload, as_json, render)
 
 
 def main() -> None:
