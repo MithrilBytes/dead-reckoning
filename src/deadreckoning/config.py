@@ -51,6 +51,7 @@ class DependencyType(StrEnum):
 class NodeConfig(Strict):
     node_id: str
     data_dir: str
+    sync_listen: str | None = None
 
 
 class Canary(Strict):
@@ -69,6 +70,8 @@ class TierConfig(Strict):
     connect_timeout_s: float = 3.0
     read_timeout_s: float = 60.0
     slow_threshold_ms: int = 8000
+    max_tokens: int = Field(default=2048, gt=0)
+    seed: int | None = None
     canary: bool = True
 
     @model_validator(mode="after")
@@ -82,6 +85,7 @@ class DependencyConfig(Strict):
     name: str
     type: DependencyType
     base_url: str | None = None
+    slow_threshold_ms: int = 5000
     token_env: str | None = None
     canary: Canary | None = None
 
@@ -118,7 +122,7 @@ class TimeConfig(Strict):
 class SyncConfig(Strict):
     interval_s: int = 30
     page_size: int = Field(default=500, gt=0)
-    peers: list[str] = []
+    reconcile_deadline_s: int = Field(default=45, gt=0)
 
 
 class ProvisioningConfig(Strict):

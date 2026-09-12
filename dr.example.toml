@@ -6,10 +6,13 @@ profile = "demo"                  # demo | production ; chaos refuses to enable 
 [node]
 node_id = "truck-7"
 data_dir = "./data/truck-7"
+sync_listen = "127.0.0.1:8600"   # where this node serves its own sync endpoints
 
 # ---- Model tiers: rank 0 is highest fidelity ---------------------------------
 [[tiers]]
 name = "frontier"
+max_tokens = 2048
+seed = 7
 rank = 0
 kind = "remote"
 base_url = "https://api.example.com/v1"
@@ -23,6 +26,8 @@ canary = true
 
 [[tiers]]
 name = "local-q8"
+max_tokens = 1536
+seed = 7
 rank = 1
 kind = "local"                    # local, not onprem: an onprem tier alive would prevent ISLANDED
 base_url = "http://127.0.0.1:11434/v1"
@@ -35,6 +40,8 @@ canary = true                     # must be probed: the router can only select H
 
 [[tiers]]
 name = "local-q4"
+max_tokens = 1024
+seed = 7
 rank = 2
 kind = "local"
 base_url = "http://127.0.0.1:11434/v1"
@@ -50,6 +57,7 @@ canary = true                     # a tier the router may pick has to be probeab
 name = "gis-api"
 type = "TOOL_BACKEND"
 base_url = "http://127.0.0.1:8710/gis"
+slow_threshold_ms = 2000
 canary = { method = "HEAD", path = "/health" }
 
 [[dependencies]]
@@ -99,6 +107,13 @@ type = "SYNC_HUB"
 base_url = "http://127.0.0.1:8700"
 token_env = "DR_HUB_TOKEN"
 
+# Peers are declared here rather than as bare URLs, so each gets a name, a health
+# state and a breaker. PEER health is reported but does not gate CONNECTED.
+# [[dependencies]]
+# name = "truck-12"
+# type = "PEER"
+# base_url = "http://truck-12.local:8600"
+
 # ---- Tool contract overrides (code-declared contracts are the default) --------
 [[tools]]
 name = "list_open_tickets"
@@ -111,7 +126,7 @@ hydrate = { static_args = [{ area = "SB-3" }], max_rows = 32 }
 # ---- Task classes -------------------------------------------------------------
 [task_classes.triage]
 min_rank = 2
-review_above_rank = 1
+review_above_rank = 0             # anything below frontier gets re-reviewed, battery or not
 max_tokens_total = 20000
 max_wall_s = 600
 max_steps = 12
@@ -148,7 +163,7 @@ skew_threshold_s = 300
 [sync]
 interval_s = 30
 page_size = 500
-peers = []                        # optional direct peers, e.g. ["http://truck-12.local:8600"]
+reconcile_deadline_s = 45         # cap on repeating the pull while peers are still reconnecting
 
 # ---- Provisioning -------------------------------------------------------------
 [provisioning]
