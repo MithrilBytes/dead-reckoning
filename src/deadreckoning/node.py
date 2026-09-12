@@ -18,7 +18,7 @@ from typing import Any
 
 from deadreckoning.chaos import Fault, FaultInjector
 from deadreckoning.clock import HLC, HybridLogicalClock, TimeTrust, TimeTrustTracker
-from deadreckoning.config import Config, TierKind
+from deadreckoning.config import Config
 from deadreckoning.health import (
     BreakerPolicy,
     BreakerState,
@@ -75,7 +75,7 @@ class Node:
         self._now_ms = now_ms
 
         self.dependencies = _declared_dependencies(config)
-        self.tier_kinds = {tier.name: str(tier.effective_kind) for tier in config.tiers}
+        self.tier_kinds = {tier.name: str(tier.kind) for tier in config.tiers}
         self.monitor = HealthMonitor(
             dependencies=self.dependencies,
             policy=BreakerPolicy(
@@ -120,7 +120,7 @@ class Node:
         happened.
         """
         for tier in self.config.tiers:
-            if tier.kind is not TierKind.SCRIPTED:
+            if not tier.scripted:
                 continue
             current = self.monitor.get(tier.name)
             if current.state is HealthState.UNKNOWN:

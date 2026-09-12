@@ -32,16 +32,16 @@ data_dir = "./data"
 [[tiers]]
 name = "frontier"
 rank = 0
-kind = "scripted"
-stands_for = "remote"
+kind = "remote"
+client = "scripted"
 model = "scripted-frontier"
 canary = false
 
 [[tiers]]
 name = "local-q4"
 rank = 2
-kind = "scripted"
-stands_for = "local"
+kind = "local"
+client = "scripted"
 model = "scripted-local"
 canary = false
 

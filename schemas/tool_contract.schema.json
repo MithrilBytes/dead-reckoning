@@ -48,7 +48,7 @@
       "default": null
     },
     "expiry_s": {
-      "type": ["integer", "null"],
+      "type": "integer",
       "minimum": 1,
       "description": "For QUEUE tools: seconds a deferred intent remains valid. Null means no expiry (discouraged)."
     },

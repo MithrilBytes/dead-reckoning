@@ -124,32 +124,35 @@ def test_a_tier_that_cannot_be_probed_is_refused(tmp_path: Path) -> None:
         )
 
 
-def test_a_scripted_tier_needs_no_canary(tmp_path: Path) -> None:
+def test_a_scripted_client_needs_no_canary_and_no_endpoint(tmp_path: Path) -> None:
     config = _load(
         tmp_path,
-        BASE
-        + '[[tiers]]\nname = "s"\nrank = 0\nkind = "scripted"\nstands_for = "remote"\n'
-        + 'model = "m"\ncanary = false\n',
+        BASE + '[[tiers]]\nname = "s"\nrank = 0\nkind = "remote"\nclient = "scripted"\n'
+        'model = "m"\ncanary = false\n',
     )
-    assert config.tiers[0].canary is False
+    assert config.tiers[0].scripted is True
+    assert config.tiers[0].kind.value == "remote"
 
 
-def test_a_scripted_tier_must_say_what_it_stands_for(tmp_path: Path) -> None:
-    """Without it the remote and local partition is incomplete.
+def test_a_scripted_tier_keeps_its_declared_kind(tmp_path: Path) -> None:
+    """Being scripted says how a tier is reached, not where it lives.
 
-    A tier that is neither would mean no remote tier is ever usable, so a node
-    running entirely on scripted tiers could never leave ISLANDED, which defeats
-    the purpose of having scripted tiers at all.
+    A scripted frontier is still a remote tier and must partition as one, or a
+    node running the headless scenario could never leave ISLANDED.
     """
-    with pytest.raises(ConfigError, match="stands_for"):
-        _load(
-            tmp_path,
-            BASE + '[[tiers]]\nname = "s"\nrank = 0\nkind = "scripted"\nmodel = "m"\n',
-        )
+    config = _load(
+        tmp_path,
+        BASE + '[[tiers]]\nname = "f"\nrank = 0\nkind = "remote"\nclient = "scripted"\n'
+        'model = "m"\ncanary = false\n'
+        '[[tiers]]\nname = "l"\nrank = 1\nkind = "local"\nclient = "scripted"\n'
+        'model = "m"\ncanary = false\n',
+    )
+    assert [t.kind.value for t in config.tiers] == ["remote", "local"]
 
 
-def test_stands_for_must_name_a_real_kind(tmp_path: Path) -> None:
-    with pytest.raises(ConfigError, match="not 'scripted'"):
+def test_an_http_tier_still_needs_an_endpoint(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="base_url is required"):
+        _load(tmp_path, BASE + '[[tiers]]\nname = "a"\nrank = 0\nkind = "remote"\nmodel = "m"\n')
         _load(
             tmp_path,
             BASE + '[[tiers]]\nname = "s"\nrank = 0\nkind = "scripted"\n'

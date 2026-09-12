@@ -149,7 +149,8 @@
       "properties": {
         "name": { "type": "string" },
         "rank": { "type": "integer", "minimum": 0 },
-        "kind": { "enum": ["remote", "onprem", "local", "scripted"] },
+        "kind": { "enum": ["remote", "onprem", "local"], "description": "Where the tier lives. Being scripted is a property of the client, not of the tier." },
+        "client": { "enum": ["http", "scripted"], "default": "http" },
         "model": { "type": "string" },
         "model_digest": { "type": ["string", "null"], "description": "Endpoint-reported digest or version, if any." }
       }
@@ -332,9 +333,12 @@
     "model_turn_body": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["turn_type"],
+      "required": ["turn_type", "system", "messages"],
       "properties": {
         "turn_type": { "enum": ["TOOL_CALL", "DECISION", "MALFORMED"] },
+        "system": { "type": "string", "description": "The exact rendered system prompt, after redaction. Replay and re-review reconstruct from this; without it they reconstruct from nothing." },
+        "messages": { "type": "array", "items": { "type": "object" }, "description": "The message list as sent, after redaction." },
+        "manifest": { "type": ["object", "null"], "description": "The manifest as rendered for this turn, so a reviewer sees what the model was told it could do." },
         "tool_calls": { "type": "array", "items": { "type": "object" } },
         "latency_ms": { "type": ["integer", "null"], "minimum": 0 },
         "tokens_prompt": { "type": ["integer", "null"], "minimum": 0 },
