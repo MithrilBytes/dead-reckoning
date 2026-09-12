@@ -43,7 +43,7 @@ supports_tools = false            # use the JSON-in-text protocol
 connect_timeout_s = 2
 read_timeout_s = 120
 slow_threshold_ms = 30000
-canary = false                    # local tier: passive observation only
+canary = true                     # a tier the router may pick has to be probeable
 
 # ---- Non-model dependencies --------------------------------------------------
 [[dependencies]]

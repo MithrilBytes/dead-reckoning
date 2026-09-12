@@ -177,6 +177,17 @@ class Config(Strict):
                 f"dependencies: {clash!r} is already a tier name; every dependency needs a"
                 " distinct name because health is tracked by name"
             )
+        unprobeable = [
+            tier.name
+            for tier in self.tiers
+            if tier.kind is not TierKind.SCRIPTED and not tier.canary
+        ]
+        if unprobeable:
+            raise ValueError(
+                f"tiers: {', '.join(unprobeable)} cannot be probed, so the router can never select"
+                " them and the node can never reach CONNECTED. A tier that is not scripted needs"
+                " canary = true."
+            )
         if self.chaos.enabled and self.profile == "production":
             raise ValueError(
                 "chaos: fault injection cannot be enabled while profile is 'production'"

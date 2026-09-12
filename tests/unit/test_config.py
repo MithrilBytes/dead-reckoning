@@ -106,3 +106,27 @@ def test_configured_redact_keys_extend_the_defaults(tmp_path: Path) -> None:
     config = _load(tmp_path, BASE + '[redaction]\nkeys = ["pin"]\n')
     assert "pin" in config.redact_keys()
     assert "authorization" in config.redact_keys()
+
+
+def test_a_tier_that_cannot_be_probed_is_refused(tmp_path: Path) -> None:
+    """A tier with no canary is a deadlock, not a saving.
+
+    It starts UNKNOWN, the router will only pick a tier that is HEALTHY or SLOW,
+    so it is never called and never observed, so it stays UNKNOWN. It also blocks
+    the whole node from reaching CONNECTED, because that needs every declared
+    dependency healthy.
+    """
+    with pytest.raises(ConfigError, match="cannot be probed"):
+        _load(
+            tmp_path,
+            BASE + '[[tiers]]\nname = "a"\nrank = 0\nkind = "local"\nmodel = "m"\n'
+            'base_url = "u"\ncanary = false\n',
+        )
+
+
+def test_a_scripted_tier_needs_no_canary(tmp_path: Path) -> None:
+    config = _load(
+        tmp_path,
+        BASE + '[[tiers]]\nname = "s"\nrank = 0\nkind = "scripted"\nmodel = "m"\ncanary = false\n',
+    )
+    assert config.tiers[0].canary is False
