@@ -126,6 +126,32 @@ class LocalStore:
         ).fetchone()
         return None if row is None else max(0, (now_ms - int(row["captured_ms"])) // 1000)
 
+    def evict_oldest(self, tool: str, how_many: int, keep_subjects: set[str]) -> int:
+        """Drop the oldest rows for a tool, sparing anything still in the working set.
+
+        A row whose source is a non-fetch path is never evicted: it cannot be
+        refetched, so dropping it destroys the only copy.
+        """
+        if how_many <= 0:
+            return 0
+        rows = self._db.connection.execute(
+            "SELECT args_canonical, subject FROM local_store"
+            " WHERE tool = ? AND source IS NOT NULL"
+            " ORDER BY captured_ms ASC",
+            (tool,),
+        ).fetchall()
+        doomed = [
+            row["args_canonical"]
+            for row in rows
+            if row["subject"] is None or row["subject"] not in keep_subjects
+        ][:how_many]
+        for args_canonical in doomed:
+            self._db.connection.execute(
+                "DELETE FROM local_store WHERE tool = ? AND args_canonical = ?",
+                (tool, args_canonical),
+            )
+        return len(doomed)
+
     def count(self, tool: str | None = None) -> int:
         if tool is None:
             sql, params = "SELECT COUNT(*) AS n FROM local_store", ()
