@@ -127,6 +127,31 @@ def test_a_tier_that_cannot_be_probed_is_refused(tmp_path: Path) -> None:
 def test_a_scripted_tier_needs_no_canary(tmp_path: Path) -> None:
     config = _load(
         tmp_path,
-        BASE + '[[tiers]]\nname = "s"\nrank = 0\nkind = "scripted"\nmodel = "m"\ncanary = false\n',
+        BASE
+        + '[[tiers]]\nname = "s"\nrank = 0\nkind = "scripted"\nstands_for = "remote"\n'
+        + 'model = "m"\ncanary = false\n',
     )
     assert config.tiers[0].canary is False
+
+
+def test_a_scripted_tier_must_say_what_it_stands_for(tmp_path: Path) -> None:
+    """Without it the remote and local partition is incomplete.
+
+    A tier that is neither would mean no remote tier is ever usable, so a node
+    running entirely on scripted tiers could never leave ISLANDED, which defeats
+    the purpose of having scripted tiers at all.
+    """
+    with pytest.raises(ConfigError, match="stands_for"):
+        _load(
+            tmp_path,
+            BASE + '[[tiers]]\nname = "s"\nrank = 0\nkind = "scripted"\nmodel = "m"\n',
+        )
+
+
+def test_stands_for_must_name_a_real_kind(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="not 'scripted'"):
+        _load(
+            tmp_path,
+            BASE + '[[tiers]]\nname = "s"\nrank = 0\nkind = "scripted"\n'
+            'stands_for = "scripted"\nmodel = "m"\n',
+        )

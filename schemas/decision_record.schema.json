@@ -95,6 +95,26 @@
       "then": { "properties": { "body": { "$ref": "mode_event.schema.json#/$defs/health_change_body" } } }
     },
     {
+      "if": { "properties": { "kind": { "const": "IDENTITY_CHANGE" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/identity_change_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "TIME_TRUST_CHANGE" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/time_trust_change_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "SYNC" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/sync_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "CHECKPOINT" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/checkpoint_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "MODEL_TURN" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/model_turn_body" } } }
+    },
+    {
       "if": { "properties": { "kind": { "const": "RESOURCE_CHANGE" } } },
       "then": { "properties": { "body": { "$ref": "#/$defs/resource_change_body" } } }
     },
@@ -259,6 +279,67 @@
         "held_outbox_ids": { "type": "array", "items": { "type": "string" }, "description": "This node's outbox entries moved to ON_HOLD on detection." },
         "already_executed_outbox_ids": { "type": "array", "items": { "type": "string" }, "description": "This node's outbox entries tracing to either decision that had already reached DONE before the conflict was known. The adjudicator must see that an action has already happened." },
         "detected_by": { "type": "string", "description": "node_id. Two nodes may each detect the same conflict; identity across nodes is dedupe_key, not id." }
+      }
+    },
+    "identity_change_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_state", "to_state", "reason"],
+      "properties": {
+        "from_state": { "enum": ["FRESH", "CACHED", "STALE", "NONE"] },
+        "to_state": { "enum": ["FRESH", "CACHED", "STALE", "NONE"] },
+        "reason": { "type": "string", "description": "What moved it: a refresh, a failure class, or the cached grant ageing out." },
+        "grant_ttl_remaining_s": { "type": ["integer", "null"], "minimum": 0 },
+        "idp": { "type": ["string", "null"], "description": "Dependency name of the identity provider." }
+      }
+    },
+    "time_trust_change_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_trust", "to_trust", "source"],
+      "properties": {
+        "from_trust": { "enum": ["TRUSTED", "DRIFTING", "UNTRUSTED"] },
+        "to_trust": { "enum": ["TRUSTED", "DRIFTING", "UNTRUSTED"] },
+        "offset_ms": { "type": ["integer", "null"], "description": "Observed offset against the source. Signed: positive means the local clock is ahead." },
+        "source": { "enum": ["TIME_SOURCE", "DATE_HEADER", "STALENESS", "BACKWARD_JUMP"], "description": "DATE_HEADER is the opportunistic comparison against any successful response; STALENESS is trust decaying with no check; BACKWARD_JUMP is the local clock moving backwards past the threshold." }
+      }
+    },
+    "sync_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["peer", "direction"],
+      "properties": {
+        "peer": { "type": "string", "description": "Dependency name of the hub or peer." },
+        "direction": { "enum": ["PUSH", "PULL"] },
+        "pushed": { "type": "integer", "minimum": 0 },
+        "pulled": { "type": "integer", "minimum": 0 },
+        "conflicts_detected": { "type": "integer", "minimum": 0 },
+        "error": { "type": ["string", "null"], "enum": [null, "CHAIN_BREAK", "AUTH_FAILURE", "UNREACHABLE", "PROTOCOL_ERROR"] },
+        "rejected_node": { "type": ["string", "null"], "description": "On CHAIN_BREAK, whose chain failed continuity." }
+      }
+    },
+    "checkpoint_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase"],
+      "properties": {
+        "phase": { "enum": ["START", "COMPLETE"], "description": "Emitted at task start and completion only, not every step, to keep the log readable." },
+        "step": { "type": ["integer", "null"], "minimum": 0 },
+        "tokens_consumed": { "type": ["integer", "null"], "minimum": 0 },
+        "outcome_record_id": { "type": ["string", "null"], "description": "On COMPLETE, the FINAL, ABSTENTION or ESCALATION that ended the task." }
+      }
+    },
+    "model_turn_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["turn_type"],
+      "properties": {
+        "turn_type": { "enum": ["TOOL_CALL", "DECISION", "MALFORMED"] },
+        "tool_calls": { "type": "array", "items": { "type": "object" } },
+        "latency_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "tokens_prompt": { "type": ["integer", "null"], "minimum": 0 },
+        "tokens_completion": { "type": ["integer", "null"], "minimum": 0 },
+        "correction_attempt": { "type": ["integer", "null"], "minimum": 0, "description": "Which retry produced this turn, when the JSON protocol needed correcting." }
       }
     },
     "resource_change_body": {

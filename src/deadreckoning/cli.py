@@ -18,7 +18,9 @@ from rich.console import Console
 from rich.table import Table
 
 from deadreckoning.canonical import content_hash
+from deadreckoning.chaos import ChaosDisabledError
 from deadreckoning.config import Config, ConfigError, load_config
+from deadreckoning.health import REMEDIATION, FailureClass
 from deadreckoning.node import Node
 from deadreckoning.records import RecordKind
 from deadreckoning.runtime import SCHEMA_VERSION
@@ -94,48 +96,81 @@ def init(
                 "config_hash": content_hash(loaded.model_dump(mode="json")),
             },
         )
+        # Assess before answering. A node that has just been created has a mode
+        # like any other, and recording it here means the log opens with what the
+        # node believed about itself rather than with a silence.
+        node.reassess_mode()
         payload = {
             "node_id": node.node_id,
             "data_dir": str(data_dir),
             "genesis_record_id": genesis.id,
             "hash": genesis.hash,
+            "mode": str(node.mode),
         }
 
     def render(p: dict[str, Any]) -> None:
         _stdout.print(f"initialised node [bold]{p['node_id']}[/bold] at {p['data_dir']}")
-        _stdout.print(f"genesis record {p['genesis_record_id']}")
+        _stdout.print(f"genesis record {p['genesis_record_id']}, mode {p['mode']}")
 
     _emit(payload, as_json, render)
 
 
 @app.command()
 def status(config: ConfigOption = Path("dr.toml"), as_json: JsonOption = False) -> None:
-    """Show what this node is and what it holds. Needs no network and no model."""
+    """Mode, health, and why. Needs no network and no model."""
     with _open(config) as node:
+        node.reassess_mode()
+        health = node.monitor.vector
         payload = {
             "node_id": node.node_id,
             "mode": str(node.mode),
+            "pending_mode": str(node.controller.pending) if node.controller.pending else None,
             "time_trust": str(node.time_trust),
             "records": node.store.count(),
-            "nodes_known": node.store.node_ids(),
-            "last_hlc": str(node.clock.last),
-            "tiers": [
-                {"name": t.name, "rank": t.rank, "kind": str(t.kind)} for t in node.config.tiers
+            "chaos_enabled": node.injector.enabled,
+            "dependencies": [
+                {
+                    "name": name,
+                    "type": node.dependencies[name],
+                    "state": str(item.state),
+                    "breaker": str(item.breaker),
+                    "failure_class": (
+                        str(item.last_failure_class) if item.last_failure_class else None
+                    ),
+                    "latency_ms": item.last_latency_ms,
+                    "remediation": (
+                        REMEDIATION.get(item.last_failure_class, "")
+                        if item.last_failure_class
+                        else ""
+                    ),
+                    "injected": name in node.injector.all_armed(),
+                    "needs_reconciliation": item.needs_reconciliation,
+                }
+                for name, item in sorted(health.items())
             ],
-            "data_dir": str(node.database.path.parent),
         }
 
     def render(p: dict[str, Any]) -> None:
-        table = Table(show_header=False, box=None)
-        table.add_row("node", p["node_id"])
-        table.add_row("mode", p["mode"])
-        table.add_row("time trust", p["time_trust"])
-        table.add_row("records", str(p["records"]))
-        table.add_row("nodes known", ", ".join(p["nodes_known"]) or "none")
-        table.add_row("last stamp", p["last_hlc"])
-        table.add_row(
-            "tiers", ", ".join(f"{t['name']} (rank {t['rank']}, {t['kind']})" for t in p["tiers"])
+        pending = (
+            f"  [dim](holding {p['pending_mode']} until the dwell elapses)[/dim]"
+            if p["pending_mode"]
+            else ""
         )
+        _stdout.print(f"[bold]{p['node_id']}[/bold]  mode [bold]{p['mode']}[/bold]{pending}")
+        _stdout.print(f"time trust {p['time_trust']}   records {p['records']}")
+        table = Table(box=None, pad_edge=False)
+        for column in ("dependency", "type", "state", "breaker", "last class", "note"):
+            table.add_column(column, overflow="fold")
+        for dep in p["dependencies"]:
+            marker = " [yellow](injected)[/yellow]" if dep["injected"] else ""
+            table.add_row(
+                dep["name"] + marker,
+                dep["type"],
+                dep["state"],
+                dep["breaker"],
+                dep["failure_class"] or "",
+                dep["remediation"],
+            )
         _stdout.print(table)
 
     _emit(payload, as_json, render)
@@ -260,6 +295,78 @@ def verify(config: ConfigOption = Path("dr.toml"), as_json: JsonOption = False) 
     _emit(payload, as_json, render)
     if not payload["ok"]:
         raise typer.Exit(code=1)
+
+
+@app.command()
+def chaos(
+    dependency: Annotated[
+        str | None, typer.Argument(help="Dependency to affect. Omit with --restore-all.")
+    ] = None,
+    config: ConfigOption = Path("dr.toml"),
+    fail: Annotated[str | None, typer.Option("--fail", help="Failure class to inject.")] = None,
+    latency: Annotated[int | None, typer.Option("--latency", help="Milliseconds to add.")] = None,
+    for_seconds: Annotated[
+        float | None, typer.Option("--for", help="Lift the fault automatically after this long.")
+    ] = None,
+    restore: Annotated[
+        bool, typer.Option("--restore", help="Lift this dependency's fault.")
+    ] = False,
+    restore_all: Annotated[
+        bool, typer.Option("--restore-all", help="Lift every fault, in one derivation.")
+    ] = False,
+    as_json: JsonOption = False,
+) -> None:
+    """Inject a fault, and record that it was injected.
+
+    Everything here is written to the log as an injection, so a recording can
+    never be mistaken for a natural outage.
+    """
+    if fail is not None and fail not in set(FailureClass):
+        _fail(f"unknown failure class {fail!r}. Known: {', '.join(sorted(FailureClass))}")
+    if not restore_all and dependency is None:
+        _fail("name a dependency, or pass --restore-all")
+
+    with _open(config) as node:
+        try:
+            if restore_all:
+                lifted = node.lift_faults(None)
+                payload: dict[str, Any] = {"lifted": lifted, "mode": str(node.mode)}
+            elif restore:
+                assert dependency is not None
+                lifted = node.lift_faults(dependency)
+                payload = {"lifted": lifted, "mode": str(node.mode)}
+            else:
+                assert dependency is not None
+                node.arm_fault(
+                    dependency,
+                    failure_class=FailureClass(fail) if fail else None,
+                    latency_ms=latency,
+                    for_seconds=for_seconds,
+                )
+                payload = {
+                    "armed": dependency,
+                    "failure_class": fail,
+                    "latency_ms": latency,
+                    "mode": str(node.mode),
+                    "state": str(node.monitor.get(dependency).state),
+                }
+        except ChaosDisabledError as exc:
+            _fail(str(exc))
+            raise AssertionError("unreachable") from exc
+        except KeyError as exc:
+            _fail(f"{exc.args[0]}")
+            raise AssertionError("unreachable") from exc
+
+    def render(p: dict[str, Any]) -> None:
+        if "armed" in p:
+            what = p["failure_class"] or f"{p['latency_ms']} ms latency"
+            _stdout.print(f"injected [yellow]{what}[/yellow] on {p['armed']}")
+            _stdout.print(f"{p['armed']} is now {p['state']}; mode {p['mode']}")
+        else:
+            lifted = ", ".join(p["lifted"]) or "nothing"
+            _stdout.print(f"restored {lifted}; mode {p['mode']}")
+
+    _emit(payload, as_json, render)
 
 
 def main() -> None:

@@ -73,12 +73,26 @@ class TierConfig(Strict):
     max_tokens: int = Field(default=2048, gt=0)
     seed: int | None = None
     canary: bool = True
+    stands_for: TierKind | None = None
 
     @model_validator(mode="after")
     def _endpoint_required(self) -> Self:
         if self.kind is not TierKind.SCRIPTED and not self.base_url:
             raise ValueError("base_url is required for every tier that is not scripted")
+        if self.kind is TierKind.SCRIPTED and self.stands_for is None:
+            raise ValueError(
+                "a scripted tier must declare stands_for, naming the kind it substitutes."
+                " Without it the remote and local partition is incomplete and the node can"
+                " never leave ISLANDED."
+            )
+        if self.stands_for is TierKind.SCRIPTED:
+            raise ValueError("stands_for must name a real kind, not 'scripted'")
         return self
+
+    @property
+    def effective_kind(self) -> TierKind:
+        """What this tier counts as when deriving the mode."""
+        return self.stands_for if self.kind is TierKind.SCRIPTED and self.stands_for else self.kind
 
 
 class DependencyConfig(Strict):

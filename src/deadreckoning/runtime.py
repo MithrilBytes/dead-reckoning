@@ -54,6 +54,39 @@ BEGIN
     SELECT RAISE(ABORT, 'records are append only');
 END;
 
+-- Health survives between commands. `dr chaos` and `dr status` are separate
+-- processes, so an assessment that lived only in memory would be forgotten
+-- between the fault being armed and anybody asking about it.
+CREATE TABLE IF NOT EXISTS health (
+    dependency            TEXT PRIMARY KEY,
+    state                 TEXT NOT NULL,
+    breaker               TEXT NOT NULL,
+    last_failure_class    TEXT,
+    last_latency_ms       INTEGER,
+    consecutive_failures  INTEGER NOT NULL DEFAULT 0,
+    consecutive_successes INTEGER NOT NULL DEFAULT 0,
+    backoff_s             REAL NOT NULL DEFAULT 0,
+    needs_reconciliation  INTEGER NOT NULL DEFAULT 0
+);
+
+-- Armed faults, for the same reason. An injected fault that vanished when the
+-- command exited could never be observed by the next one.
+CREATE TABLE IF NOT EXISTS chaos (
+    dependency     TEXT PRIMARY KEY,
+    failure_class  TEXT,
+    latency_ms     INTEGER,
+    drop_pct       REAL,
+    until          REAL
+);
+
+CREATE TABLE IF NOT EXISTS mode_state (
+    id            INTEGER PRIMARY KEY CHECK (id = 1),
+    mode          TEXT NOT NULL,
+    since_ms      INTEGER NOT NULL,
+    pending       TEXT,
+    pending_since REAL
+);
+
 -- The clock survives restarts here. Losing it would let the node reissue a
 -- stamp it has already used, which breaks ordering against every peer.
 CREATE TABLE IF NOT EXISTS clock (
@@ -115,4 +148,68 @@ def save_hlc(database: Database, node_id: str, physical_ms: int, logical: int) -
         " ON CONFLICT (node_id) DO UPDATE SET physical_ms = excluded.physical_ms,"
         " logical = excluded.logical",
         (node_id, physical_ms, logical),
+    )
+
+
+def load_health(database: Database) -> dict[str, dict[str, object]]:
+    rows = database.connection.execute("SELECT * FROM health").fetchall()
+    return {row["dependency"]: dict(row) for row in rows}
+
+
+def save_health(database: Database, dependency: str, fields: dict[str, object]) -> None:
+    database.connection.execute(
+        "INSERT INTO health (dependency, state, breaker, last_failure_class, last_latency_ms,"
+        " consecutive_failures, consecutive_successes, backoff_s, needs_reconciliation)"
+        " VALUES (:dependency, :state, :breaker, :last_failure_class, :last_latency_ms,"
+        " :consecutive_failures, :consecutive_successes, :backoff_s, :needs_reconciliation)"
+        " ON CONFLICT (dependency) DO UPDATE SET"
+        " state = excluded.state, breaker = excluded.breaker,"
+        " last_failure_class = excluded.last_failure_class,"
+        " last_latency_ms = excluded.last_latency_ms,"
+        " consecutive_failures = excluded.consecutive_failures,"
+        " consecutive_successes = excluded.consecutive_successes,"
+        " backoff_s = excluded.backoff_s,"
+        " needs_reconciliation = excluded.needs_reconciliation",
+        {"dependency": dependency, **fields},
+    )
+
+
+def load_faults(database: Database) -> dict[str, dict[str, object]]:
+    rows = database.connection.execute("SELECT * FROM chaos").fetchall()
+    return {row["dependency"]: dict(row) for row in rows}
+
+
+def save_fault(database: Database, dependency: str, fields: dict[str, object]) -> None:
+    database.connection.execute(
+        "INSERT INTO chaos (dependency, failure_class, latency_ms, drop_pct, until)"
+        " VALUES (:dependency, :failure_class, :latency_ms, :drop_pct, :until)"
+        " ON CONFLICT (dependency) DO UPDATE SET"
+        " failure_class = excluded.failure_class, latency_ms = excluded.latency_ms,"
+        " drop_pct = excluded.drop_pct, until = excluded.until",
+        {"dependency": dependency, **fields},
+    )
+
+
+def delete_fault(database: Database, dependency: str) -> None:
+    database.connection.execute("DELETE FROM chaos WHERE dependency = ?", (dependency,))
+
+
+def clear_faults(database: Database) -> None:
+    database.connection.execute("DELETE FROM chaos")
+
+
+def load_mode(database: Database) -> dict[str, object] | None:
+    row = database.connection.execute("SELECT * FROM mode_state WHERE id = 1").fetchone()
+    return dict(row) if row else None
+
+
+def save_mode(
+    database: Database, mode: str, since_ms: int, pending: str | None, pending_since: float | None
+) -> None:
+    database.connection.execute(
+        "INSERT INTO mode_state (id, mode, since_ms, pending, pending_since)"
+        " VALUES (1, ?, ?, ?, ?)"
+        " ON CONFLICT (id) DO UPDATE SET mode = excluded.mode, since_ms = excluded.since_ms,"
+        " pending = excluded.pending, pending_since = excluded.pending_since",
+        (mode, since_ms, pending, pending_since),
     )
