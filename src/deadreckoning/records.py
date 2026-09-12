@@ -52,6 +52,8 @@ class RecordKind(StrEnum):
     SYNC = "SYNC"
     CHECKPOINT = "CHECKPOINT"
     PROVISION = "PROVISION"
+    RESOURCE_CHANGE = "RESOURCE_CHANGE"
+    NODE_INIT = "NODE_INIT"
 
 
 class Mode(StrEnum):

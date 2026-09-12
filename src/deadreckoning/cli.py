@@ -17,9 +17,11 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from deadreckoning.canonical import content_hash
 from deadreckoning.config import Config, ConfigError, load_config
 from deadreckoning.node import Node
 from deadreckoning.records import RecordKind
+from deadreckoning.runtime import SCHEMA_VERSION
 
 app = typer.Typer(
     name="dr",
@@ -85,8 +87,12 @@ def init(
                 f" {node.node_id!r}. Refusing to write a second genesis record."
             )
         genesis = node.emit(
-            RecordKind.CHECKPOINT,
-            body={"event": "genesis", "schema_version": 1, "profile": loaded.profile},
+            RecordKind.NODE_INIT,
+            body={
+                "schema_version": SCHEMA_VERSION,
+                "profile": loaded.profile,
+                "config_hash": content_hash(loaded.model_dump(mode="json")),
+            },
         )
         payload = {
             "node_id": node.node_id,

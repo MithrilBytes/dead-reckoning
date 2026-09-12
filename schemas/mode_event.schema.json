@@ -90,8 +90,8 @@
         "dwell_satisfied": { "type": "boolean", "description": "For upward transitions: whether up_dwell elapsed. Always true for downward transitions." },
         "reconciliation_plan": {
           "type": ["array", "null"],
-          "description": "Present when to_mode is RECONNECTING: the ordered steps that will run.",
-          "items": { "enum": ["TIME_RESYNC", "IDENTITY_REFRESH", "SYNC_PULL", "REVIEW", "OUTBOX_DRAIN", "SYNC_PUSH"] }
+          "description": "Present when to_mode is RECONNECTING: the ordered steps that will run. SYNC_PUSH appears twice, once before the pull so peers can detect a conflict before their own drain and once at the end, and SYNC_PULL may repeat until the sync vector settles.",
+          "items": { "enum": ["TIME_RESYNC", "IDENTITY_REFRESH", "SYNC_PUSH", "SYNC_PULL", "REVIEW", "OUTBOX_DRAIN"] }
         },
         "reconciliation_result": {
           "type": ["object", "null"],

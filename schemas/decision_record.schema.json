@@ -16,7 +16,7 @@
       "enum": [
         "MODE_CHANGE", "HEALTH_CHANGE", "MODEL_TURN", "TOOL_CALL", "TOOL_RESULT", "DEFERRAL", "UNAVAILABLE",
         "FINAL", "ABSTENTION", "ESCALATION", "OUTBOX_STATE", "REVIEW", "CONFLICT", "RESOLUTION",
-        "IDENTITY_CHANGE", "TIME_TRUST_CHANGE", "SYNC", "CHECKPOINT", "PROVISION"
+        "IDENTITY_CHANGE", "TIME_TRUST_CHANGE", "SYNC", "CHECKPOINT", "PROVISION", "RESOURCE_CHANGE", "NODE_INIT"
       ]
     },
     "task_id": { "type": ["string", "null"] },
@@ -81,7 +81,10 @@
     },
     {
       "if": { "properties": { "kind": { "const": "RESOLUTION" } } },
-      "then": { "properties": { "body": { "$ref": "#/$defs/resolution_body" } } }
+      "then": {
+        "required": ["subject"],
+        "properties": { "subject": { "type": "string" }, "body": { "$ref": "#/$defs/resolution_body" } }
+      }
     },
     {
       "if": { "properties": { "kind": { "const": "MODE_CHANGE" } } },
@@ -90,6 +93,14 @@
     {
       "if": { "properties": { "kind": { "const": "HEALTH_CHANGE" } } },
       "then": { "properties": { "body": { "$ref": "mode_event.schema.json#/$defs/health_change_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "RESOURCE_CHANGE" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/resource_change_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "NODE_INIT" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/node_init_body" } } }
     },
     {
       "if": { "properties": { "kind": { "const": "PROVISION" } } },
@@ -243,11 +254,33 @@
         "subject": { "type": "string" },
         "outcome_key": { "type": "string" },
         "record_ids": { "type": "array", "items": { "type": "string" }, "minItems": 2, "uniqueItems": true },
-        "dedupe_key": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of sorted record_ids. Exactly one CONFLICT per dedupe_key may exist." },
+        "dedupe_key": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of sorted record_ids. At most one CONFLICT per dedupe_key per detecting node. The same dedupe_key appearing once per node is expected after merge, and is how a conflict keeps one identity across nodes." },
         "values": { "type": "object", "description": "record_id -> canonicalized outcome value" },
         "held_outbox_ids": { "type": "array", "items": { "type": "string" }, "description": "This node's outbox entries moved to ON_HOLD on detection." },
         "already_executed_outbox_ids": { "type": "array", "items": { "type": "string" }, "description": "This node's outbox entries tracing to either decision that had already reached DONE before the conflict was known. The adjudicator must see that an action has already happened." },
         "detected_by": { "type": "string", "description": "node_id. Two nodes may each detect the same conflict; identity across nodes is dedupe_key, not id." }
+      }
+    },
+    "resource_change_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_power", "to_power", "source"],
+      "description": "Power state transition. Power is not a dependency and has no health state, so this cannot be a HEALTH_CHANGE, but routing turns on it and must be explicable from the log alone.",
+      "properties": {
+        "from_power": { "enum": ["MAINS", "BATTERY_HIGH", "BATTERY_LOW", "UNKNOWN"] },
+        "to_power": { "enum": ["MAINS", "BATTERY_HIGH", "BATTERY_LOW", "UNKNOWN"] },
+        "source": { "enum": ["SENSOR", "FAULT_INJECTION"], "description": "SENSOR: the ResourceSensor reported it. FAULT_INJECTION: dr chaos --power set it, and the log must say so." }
+      }
+    },
+    "node_init_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "profile"],
+      "description": "Genesis record of a node's chain.",
+      "properties": {
+        "schema_version": { "type": "integer", "minimum": 1 },
+        "profile": { "enum": ["demo", "production"] },
+        "config_hash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
       }
     },
     "provision_body": {
@@ -286,11 +319,13 @@
     "resolution_body": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["conflict_ids", "dedupe_keys", "chosen", "by", "released_outbox_ids", "cancelled_outbox_ids"],
+      "required": ["conflict_ids", "dedupe_keys", "chosen", "effective_outcome", "by", "released_outbox_ids", "cancelled_outbox_ids"],
       "properties": {
         "conflict_ids": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "CONFLICT record ids known to the resolving node." },
         "dedupe_keys": { "type": "array", "items": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "minItems": 1, "description": "The conflicts this resolution closes, identified portably across nodes." },
         "chosen": { "type": ["string", "null"], "description": "Record id whose outcome stands, or null when overriding." },
+        "effective_outcome": { "$ref": "#/$defs/outcome", "description": "The outcome that now stands: copied from the chosen record, or from override_outcome. Conflict detection reads this rather than following chosen, so it stays a pure function over the record set." },
+        "re_decide_task_id": { "type": ["string", "null"], "description": "Set on the override path, where the adjudicated value has to be enacted by a new decision rather than by releasing a held entry." },
         "override_outcome": { "anyOf": [ { "$ref": "#/$defs/outcome" }, { "type": "null" } ] },
         "by": { "type": "string" },
         "note": { "type": ["string", "null"] },

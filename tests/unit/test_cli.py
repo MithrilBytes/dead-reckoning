@@ -47,7 +47,9 @@ def test_init_writes_exactly_one_genesis_record(workspace: Path) -> None:
     _run(workspace, "init")
     payload = json.loads(_run(workspace, "log", "--json").stdout)
     assert len(payload) == 1
-    assert payload[0]["kind"] == "CHECKPOINT"
+    assert payload[0]["kind"] == "NODE_INIT"
+    assert payload[0]["body"]["schema_version"] == 1
+    assert payload[0]["body"]["profile"] == "demo"
     assert payload[0]["prev_hash"] == "0" * 64
 
 
