@@ -274,3 +274,85 @@ def reconcile_interrupted(outbox: Outbox, registry: ToolRegistry) -> list[Transi
                 outbox.transition(entry, OutboxState.FAILED, reason="UNKNOWN_EXECUTION_STATE")
             )
     return transitions
+
+
+@dataclass(frozen=True, slots=True)
+class ReDecideTask:
+    """What the agent is asked when a deferred action's justification has gone.
+
+    Not a retry and not a cancellation. The agent is shown what it believed, what
+    is true now, and the action it had intended, and decides again. Cancel, modify
+    or proceed with approval are all legitimate answers, and which one is right
+    depends on facts only the agent has.
+    """
+
+    task_id: str
+    original_decision_id: str
+    outbox_id: str
+    tool: str
+    args: dict[str, Any]
+    subject: str | None
+    deltas: list[PreconditionDelta]
+
+    def instructions(self) -> str:
+        rendered_args = ", ".join(f"{k}={v!r}" for k, v in self.args.items())
+        lines = [
+            "An action you decided on earlier has not been taken, because a condition"
+            " that justified it is no longer true.",
+            "",
+            f"Intended action: {self.tool}({rendered_args})",
+            "",
+            "What changed:",
+        ]
+        lines.extend(
+            f"  {d.check}({', '.join(f'{k}={v!r}' for k, v in d.args.items())}):"
+            f" was {d.observed_value!r} when you decided, is {d.current_value!r} now"
+            for d in self.deltas
+        )
+        lines += [
+            "",
+            "Decide again. You may cancel the action, modify it, or ask to proceed anyway,"
+            " in which case it will wait for a human. Your decision supersedes the original.",
+        ]
+        return "\n".join(lines)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "original_decision_id": self.original_decision_id,
+            "outbox_id": self.outbox_id,
+            "tool": self.tool,
+            "args": self.args,
+            "subject": self.subject,
+            "deltas": [d.as_dict() for d in self.deltas],
+        }
+
+
+def redecide_tasks(
+    outbox: Outbox, result: DrainResult, prefix: str = "redecide"
+) -> list[ReDecideTask]:
+    """One task per entry whose preconditions failed, carrying the delta."""
+    tasks: list[ReDecideTask] = []
+    for entry_id, deltas in result.deltas.items():
+        entry = outbox.get(entry_id)
+        if entry is None:
+            continue
+        tasks.append(
+            ReDecideTask(
+                task_id=f"{prefix}-{entry_id}",
+                original_decision_id=entry.decision_id,
+                outbox_id=entry.id,
+                tool=entry.tool,
+                args=entry.args,
+                subject=entry.subject,
+                deltas=deltas,
+            )
+        )
+        entry.re_decide_task_id = tasks[-1].task_id
+        outbox.transition(
+            entry,
+            OutboxState.PRECONDITION_FAILED,
+            reason="RE_DECIDE_CREATED",
+            detail={"re_decide_task_id": tasks[-1].task_id},
+        )
+    return tasks
