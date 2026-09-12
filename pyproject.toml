@@ -33,7 +33,7 @@ packages = ["src/deadreckoning"]
 
 [tool.ruff]
 line-length = 100
-src = ["src", "tests"]
+src = ["src", "tests", "demo"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF", "ANN", "BLE", "TRY"]
@@ -43,7 +43,7 @@ ignore = ["ANN401", "TRY003"]
 "tests/*" = ["ANN"]
 
 [tool.pyright]
-include = ["src", "tests"]
+include = ["src", "tests", "demo"]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.11"
