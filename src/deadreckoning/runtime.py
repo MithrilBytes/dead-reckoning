@@ -213,3 +213,16 @@ def save_mode(
         " pending = excluded.pending, pending_since = excluded.pending_since",
         (mode, since_ms, pending, pending_since),
     )
+
+
+def load_power(database: Database) -> str | None:
+    row = database.connection.execute("SELECT value FROM meta WHERE key = 'power_state'").fetchone()
+    return None if row is None else str(row["value"])
+
+
+def save_power(database: Database, state: str) -> None:
+    database.connection.execute(
+        "INSERT INTO meta (key, value) VALUES ('power_state', ?)"
+        " ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        (state,),
+    )

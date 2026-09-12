@@ -13,6 +13,7 @@ from typing import Annotated, Any
 
 import typer
 
+from deadreckoning.budget import PowerState
 from deadreckoning.chaos import ChaosDisabledError
 from deadreckoning.cli_support import (
     ConfigOption,
@@ -41,6 +42,10 @@ def chaos(
     restore_all: Annotated[
         bool, typer.Option("--restore-all", help="Lift every fault, in one derivation.")
     ] = False,
+    power: Annotated[
+        str | None,
+        typer.Option("--power", help="Set the power state: MAINS, BATTERY_HIGH, BATTERY_LOW."),
+    ] = None,
     as_json: JsonOption = False,
 ) -> None:
     """Inject a fault, and record that it was injected.
@@ -50,8 +55,13 @@ def chaos(
     """
     if failure is not None and failure not in set(FailureClass):
         fail(f"unknown failure class {failure!r}. Known: {', '.join(sorted(FailureClass))}")
+    if power is not None:
+        if power not in set(PowerState):
+            fail(f"unknown power state {power!r}. Known: {', '.join(sorted(PowerState))}")
+        _set_power(config, PowerState(power), as_json)
+        return
     if not restore_all and dependency is None:
-        fail("name a dependency, or pass --restore-all")
+        fail("name a dependency, pass --restore-all, or set --power")
 
     with open_node(config) as node:
         try:
@@ -92,5 +102,34 @@ def chaos(
         else:
             lifted = ", ".join(p["lifted"]) or "nothing"
             stdout.print(f"restored {lifted}; mode {p['mode']}")
+
+    emit(payload, as_json, render)
+
+
+def _set_power(config: Path, state: PowerState, as_json: bool) -> None:
+    """Change the power state, and record the change.
+
+    Power is not a dependency: it has no health state and nothing in the
+    dependency type enum describes it, so this emits a RESOURCE_CHANGE rather
+    than pretending it is a health event. The routing that follows turns on it,
+    so it has to be explicable from the log alone.
+    """
+    from deadreckoning.records import RecordKind
+
+    with open_node(config) as node:
+        previous = node.power
+        node.set_power(state)
+        node.emit(
+            RecordKind.RESOURCE_CHANGE,
+            body={
+                "from_power": str(previous),
+                "to_power": str(state),
+                "source": "FAULT_INJECTION",
+            },
+        )
+        payload = {"from_power": str(previous), "to_power": str(state)}
+
+    def render(p: dict[str, Any]) -> None:
+        stdout.print(f"power {p['from_power']} -> [bold]{p['to_power']}[/bold]")
 
     emit(payload, as_json, render)

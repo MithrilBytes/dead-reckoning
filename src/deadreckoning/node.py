@@ -16,6 +16,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any
 
+from deadreckoning.budget import FakeResourceSensor, PowerState
 from deadreckoning.chaos import Fault, FaultInjector
 from deadreckoning.clock import HLC, HybridLogicalClock, TimeTrust, TimeTrustTracker
 from deadreckoning.config import Config
@@ -30,6 +31,12 @@ from deadreckoning.health import (
     Transition,
 )
 from deadreckoning.modes import ModeController, ModeInputs, derive_mode
+from deadreckoning.node_support import (
+    as_float,
+    as_int,
+    declared_dependencies,
+    slow_thresholds,
+)
 from deadreckoning.records import Mode, Record, RecordKind, RecordStore, new_record_id
 from deadreckoning.runtime import (
     Database,
@@ -39,11 +46,13 @@ from deadreckoning.runtime import (
     load_health,
     load_hlc,
     load_mode,
+    load_power,
     open_database,
     save_fault,
     save_health,
     save_hlc,
     save_mode,
+    save_power,
 )
 
 
@@ -74,7 +83,7 @@ class Node:
         self.clock = HybridLogicalClock(self.node_id, now_ms, last)
         self._now_ms = now_ms
 
-        self.dependencies = _declared_dependencies(config)
+        self.dependencies = declared_dependencies(config)
         self.tier_kinds = {tier.name: str(tier.kind) for tier in config.tiers}
         self.monitor = HealthMonitor(
             dependencies=self.dependencies,
@@ -84,7 +93,7 @@ class Node:
                 half_open_backoff_initial_s=config.health.half_open_backoff_initial_s,
                 half_open_backoff_max_s=config.health.half_open_backoff_max_s,
             ),
-            slow_thresholds=_slow_thresholds(config),
+            slow_thresholds=slow_thresholds(config),
         )
         self.injector = FaultInjector(
             enabled=config.chaos.enabled,
@@ -102,6 +111,10 @@ class Node:
             up_dwell_s=config.health.up_dwell_s, initial=self._restore_mode()
         )
         self._seed_scripted_tiers()
+        stored_power = load_power(self.database)
+        self.sensor = FakeResourceSensor(
+            PowerState(stored_power) if stored_power else PowerState.MAINS
+        )
 
     @property
     def mode(self) -> Mode:
@@ -142,7 +155,7 @@ class Node:
                         if row["last_failure_class"]
                         else None
                     ),
-                    last_latency_ms=_as_int(row["last_latency_ms"]),
+                    last_latency_ms=as_int(row["last_latency_ms"]),
                     consecutive_failures=int(str(row["consecutive_failures"])),
                     consecutive_successes=int(str(row["consecutive_successes"])),
                     backoff_s=float(str(row["backoff_s"])),
@@ -157,9 +170,9 @@ class Node:
                     failure_class=(
                         FailureClass(str(row["failure_class"])) if row["failure_class"] else None
                     ),
-                    latency_ms=_as_int(row["latency_ms"]),
-                    drop_pct=_as_float(row["drop_pct"]),
-                    until=_as_float(row["until"]),
+                    latency_ms=as_int(row["latency_ms"]),
+                    drop_pct=as_float(row["drop_pct"]),
+                    until=as_float(row["until"]),
                 )
                 for name, row in load_faults(self.database).items()
             }
@@ -213,6 +226,14 @@ class Node:
                 },
             )
         return transition
+
+    @property
+    def power(self) -> PowerState:
+        return self.sensor.power_state()
+
+    def set_power(self, state: PowerState) -> None:
+        self.sensor.set(state)
+        save_power(self.database, str(state))
 
     def reconciliation_work(self) -> frozenset[str]:
         """Dependencies that have work waiting on them coming back.
@@ -367,24 +388,3 @@ class Node:
         tb: TracebackType | None,
     ) -> None:
         self.close()
-
-
-def _as_int(value: object) -> int | None:
-    return None if value is None else int(str(value))
-
-
-def _as_float(value: object) -> float | None:
-    return None if value is None else float(str(value))
-
-
-def _declared_dependencies(config: Config) -> dict[str, str]:
-    """Tiers are dependencies too. Nothing is contacted that is not declared."""
-    declared = {tier.name: "MODEL_TIER" for tier in config.tiers}
-    declared.update({dep.name: str(dep.type) for dep in config.dependencies})
-    return declared
-
-
-def _slow_thresholds(config: Config) -> dict[str, int]:
-    thresholds = {tier.name: tier.slow_threshold_ms for tier in config.tiers}
-    thresholds.update({dep.name: dep.slow_threshold_ms for dep in config.dependencies})
-    return thresholds
