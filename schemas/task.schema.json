@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deadreckoning.dev/schemas/task.schema.json",
+  "title": "Dead Reckoning Task",
+  "description": "One unit of work, as handed to dr run or dropped into a node's inbox. One task per file; the runtime picks it up atomically and moves it to inbox/done/ when it reaches a decision.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "task_class", "instructions"],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "Unique on this node. Checkpoints and every record from this task key on it."
+    },
+    "task_class": {
+      "type": "string",
+      "description": "Names a [task_classes.<name>] block, which supplies min_rank, review_above_rank and the budget."
+    },
+    "instructions": { "type": "string" },
+    "subject": {
+      "type": ["string", "null"],
+      "description": "The domain entity this task is about, e.g. 'ticket:T-104'. Steps for one subject are serialised within a node, and conflict detection across nodes keys on it."
+    },
+    "working_set": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Subject identifiers this task expects to touch, used to scope hydration. Flat and explicit: the runtime expands nothing."
+    },
+    "max_steps": { "type": ["integer", "null"], "minimum": 1 },
+    "max_tokens_total": { "type": ["integer", "null"], "minimum": 1 },
+    "created_at": { "type": ["string", "null"], "format": "date-time" }
+  }
+}

@@ -38,7 +38,11 @@ Availability meanings:
 
 ## Output format
 
-Respond with exactly one JSON object and nothing else, matching this schema:
+Respond with exactly one JSON object and nothing else.
+
+Evidence is a list of references, not prose. Each entry names what it points at:
+`{"kind": "tool_result", "ref": "<the tool you called>"}`. Do not write hashes or
+ages yourself; they are filled in from the record your reference names.
 
 {{OUTPUT_SCHEMA}}
 

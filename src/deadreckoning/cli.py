@@ -22,7 +22,7 @@ from deadreckoning.chaos import ChaosDisabledError
 from deadreckoning.config import Config, ConfigError, load_config
 from deadreckoning.health import REMEDIATION, FailureClass
 from deadreckoning.node import Node
-from deadreckoning.records import RecordKind
+from deadreckoning.records import IdentityState, RecordKind
 from deadreckoning.runtime import SCHEMA_VERSION
 
 app = typer.Typer(
@@ -295,6 +295,43 @@ def verify(config: ConfigOption = Path("dr.toml"), as_json: JsonOption = False) 
     _emit(payload, as_json, render)
     if not payload["ok"]:
         raise typer.Exit(code=1)
+
+
+@app.command()
+def manifest(config: ConfigOption = Path("dr.toml"), as_json: JsonOption = False) -> None:
+    """Print the capability manifest exactly as the model would receive it.
+
+    Needs no network and no model. This is the command for answering "why did it
+    decide that", because the manifest is what the model was told it could do, and
+    its hash is stamped on the decision.
+    """
+    from deadreckoning.local_store import LocalStore
+    from deadreckoning.manifest import build_manifest, manifest_hash, render_table
+    from deadreckoning.tools.registry import ToolRegistry
+
+    with _open(config) as node:
+        node.reassess_mode()
+        registry = ToolRegistry()
+        built = build_manifest(
+            mode=node.mode,
+            tier=None,
+            identity=IdentityState.NONE,
+            identity_ttl_s=None,
+            time_trust=node.time_trust,
+            registry=registry,
+            store=LocalStore(node.database),
+            health={name: item.state for name, item in node.monitor.vector.items()},
+            now_ms=node.clock.last.physical_ms,
+        )
+        payload = {"manifest": built, "manifest_hash": manifest_hash(built)}
+
+    def render(p: dict[str, Any]) -> None:
+        _stdout.print(render_table(p["manifest"]))
+        _stdout.print(f"\n[dim]manifest_hash {p['manifest_hash']}[/dim]")
+        if not p["manifest"]["tools"]:
+            _stdout.print("[dim]no tools registered yet; they arrive with the demo tool set[/dim]")
+
+    _emit(payload, as_json, render)
 
 
 @app.command()
