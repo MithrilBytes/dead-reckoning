@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deadreckoning.dev/schemas/mode_event.schema.json",
+  "title": "Dead Reckoning Mode and Health Event Bodies",
+  "description": "Bodies for MODE_CHANGE and HEALTH_CHANGE records. A health change may cause a mode change; both are recorded separately so the log shows cause before effect.",
+  "$defs": {
+    "failure_class": {
+      "enum": [
+        "OK", "DNS_FAILURE", "CONNECT_REFUSED", "CONNECT_TIMEOUT", "TLS_CLOCK_SKEW", "TLS_OTHER",
+        "AUTH_FAILURE", "RATE_LIMITED", "SERVER_ERROR", "READ_TIMEOUT", "SLOW_RESPONSE", "PROTOCOL_ERROR"
+      ]
+    },
+    "health_state": { "enum": ["HEALTHY", "SLOW", "UNREACHABLE", "AUTH_BROKEN", "UNKNOWN"] },
+    "breaker_state": { "enum": ["CLOSED", "OPEN", "HALF_OPEN"] },
+    "dependency_type": { "enum": ["MODEL_TIER", "TOOL_BACKEND", "IDP", "TIME_SOURCE", "SYNC_HUB", "PEER"] },
+    "mode": { "enum": ["CONNECTED", "DEGRADED", "ISLANDED", "RECONNECTING"] },
+
+    "health_snapshot": {
+      "type": "object",
+      "description": "dependency name -> current assessment",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "state", "breaker"],
+        "properties": {
+          "type": { "$ref": "#/$defs/dependency_type" },
+          "state": { "$ref": "#/$defs/health_state" },
+          "breaker": { "$ref": "#/$defs/breaker_state" },
+          "last_failure_class": { "anyOf": [ { "$ref": "#/$defs/failure_class" }, { "type": "null" } ] },
+          "last_latency_ms": { "type": ["integer", "null"] },
+          "since_hlc": { "$ref": "decision_record.schema.json#/$defs/hlc" }
+        }
+      }
+    },
+
+    "health_change_body": {
+      "title": "HEALTH_CHANGE record body",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dependency", "dependency_type", "from_state", "to_state", "failure_class", "source", "breaker_from", "breaker_to"],
+      "properties": {
+        "dependency": { "type": "string" },
+        "dependency_type": { "$ref": "#/$defs/dependency_type" },
+        "from_state": { "$ref": "#/$defs/health_state" },
+        "to_state": { "$ref": "#/$defs/health_state" },
+        "failure_class": { "$ref": "#/$defs/failure_class" },
+        "breaker_from": { "$ref": "#/$defs/breaker_state" },
+        "breaker_to": { "$ref": "#/$defs/breaker_state" },
+        "latency_ms": { "type": ["integer", "null"] },
+        "consecutive_failures": { "type": "integer", "minimum": 0 },
+        "source": {
+          "enum": ["PASSIVE", "CANARY", "FAULT_INJECTION", "FAULT_RESTORE"],
+          "description": "PASSIVE: observed on a real call. CANARY: active probe. FAULT_INJECTION / FAULT_RESTORE: caused by dr chaos; must be recorded honestly."
+        },
+        "injected": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "failure_class": { "$ref": "#/$defs/failure_class" },
+            "latency_ms": { "type": ["integer", "null"] },
+            "drop_pct": { "type": ["number", "null"] },
+            "until": { "type": ["string", "null"], "format": "date-time" }
+          }
+        },
+        "remediation": { "type": ["string", "null"], "description": "Human-readable hint shown by dr status, e.g. 'certificate error with untrusted clock: likely skew, not a compromised endpoint'." },
+        "detail": { "type": ["string", "null"], "description": "Redacted error text." }
+      }
+    },
+
+    "mode_change_body": {
+      "title": "MODE_CHANGE record body",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_mode", "to_mode", "trigger_dependency", "health", "reconciliation_pending", "dwell_satisfied"],
+      "properties": {
+        "from_mode": { "anyOf": [ { "$ref": "#/$defs/mode" }, { "type": "null" } ] },
+        "to_mode": { "$ref": "#/$defs/mode" },
+        "trigger_dependency": { "type": ["string", "null"], "description": "Dependency whose health change caused re-derivation; null for reconciliation-complete transitions." },
+        "health": { "$ref": "#/$defs/health_snapshot" },
+        "reconciliation_pending": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outbox_entries", "review_items", "unsynced_records"],
+          "properties": {
+            "outbox_entries": { "type": "integer", "minimum": 0 },
+            "review_items": { "type": "integer", "minimum": 0 },
+            "unsynced_records": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "dwell_satisfied": { "type": "boolean", "description": "For upward transitions: whether up_dwell elapsed. Always true for downward transitions." },
+        "reconciliation_plan": {
+          "type": ["array", "null"],
+          "description": "Present when to_mode is RECONNECTING: the ordered steps that will run.",
+          "items": { "enum": ["TIME_RESYNC", "IDENTITY_REFRESH", "SYNC_PULL", "REVIEW", "OUTBOX_DRAIN", "SYNC_PUSH"] }
+        },
+        "reconciliation_result": {
+          "type": ["object", "null"],
+          "description": "Present when leaving RECONNECTING.",
+          "additionalProperties": false,
+          "properties": {
+            "completed_steps": { "type": "array", "items": { "type": "string" } },
+            "drained": { "type": "integer" },
+            "precondition_failures": { "type": "integer" },
+            "reviews": { "type": "integer" },
+            "review_disagreements": { "type": "integer" },
+            "conflicts_detected": { "type": "integer" },
+            "aborted_reason": { "type": ["string", "null"] }
+          }
+        }
+      }
+    }
+  }
+}
