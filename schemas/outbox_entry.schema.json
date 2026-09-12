@@ -46,7 +46,7 @@
       "additionalProperties": false,
       "properties": {
         "required": { "type": "boolean" },
-        "reason": { "type": ["string", "null"], "description": "Which rule required it: tool policy, identity state, mode." },
+        "reason": { "type": ["string", "null"], "description": "Which rule required it: tool policy, identity state, or mode. IDENTITY_INSUFFICIENT means the authority table refused it at drain." },
         "decision": { "enum": [null, "APPROVED", "REJECTED"] },
         "by": { "type": ["string", "null"] },
         "at_hlc": { "anyOf": [ { "$ref": "decision_record.schema.json#/$defs/hlc" }, { "type": "null" } ] },
