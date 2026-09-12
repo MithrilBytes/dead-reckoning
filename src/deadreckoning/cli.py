@@ -18,6 +18,7 @@ from rich.table import Table
 
 from deadreckoning.canonical import content_hash
 from deadreckoning.cli_chaos import chaos
+from deadreckoning.cli_outbox import approve, outbox, reject
 from deadreckoning.cli_support import (
     ConfigOption,
     JsonOption,
@@ -40,6 +41,9 @@ app = typer.Typer(
     add_completion=False,
 )
 app.command()(chaos)
+app.command()(outbox)
+app.command()(approve)
+app.command()(reject)
 
 
 @app.command()
