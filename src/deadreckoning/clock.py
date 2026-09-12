@@ -16,6 +16,7 @@ Consistent Snapshotting in Globally Distributed Systems", OPODIS 2014.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Protocol
 
 MAX_LOGICAL = 65535
@@ -157,3 +158,96 @@ class HybridLogicalClock:
             logical = 0
         self._last = _bounded(physical, logical, self._node_id)
         return self._last
+
+
+class TimeTrust(StrEnum):
+    TRUSTED = "TRUSTED"
+    DRIFTING = "DRIFTING"
+    UNTRUSTED = "UNTRUSTED"
+
+
+class TrustSource(StrEnum):
+    TIME_SOURCE = "TIME_SOURCE"
+    DATE_HEADER = "DATE_HEADER"
+    STALENESS = "STALENESS"
+    BACKWARD_JUMP = "BACKWARD_JUMP"
+
+
+@dataclass(frozen=True, slots=True)
+class TrustAssessment:
+    trust: TimeTrust
+    source: TrustSource
+    offset_ms: int | None
+
+
+class TimeTrustTracker:
+    """How much this node believes its own clock.
+
+    This exists because of one specific failure that looks like an attack and is
+    not. A laptop that has been off the grid for hours comes back with a clock
+    that has drifted; the first TLS handshake fails with "certificate not yet
+    valid"; and a system that reports that as a security failure sends a crew
+    chasing a compromise that never happened. Knowing whether the clock is
+    trustworthy is what lets the runtime say "this is probably skew" instead.
+
+    It holds no clock of its own. Callers pass the current time, so the whole
+    thing is testable without waiting.
+    """
+
+    def __init__(
+        self,
+        fresh_s: int = 3600,
+        stale_s: int = 86400,
+        skew_threshold_s: int = 300,
+    ) -> None:
+        self.fresh_s = fresh_s
+        self.stale_s = stale_s
+        self.skew_threshold_ms = skew_threshold_s * 1000
+        self._last_check_ms: int | None = None
+        self._last_offset_ms: int | None = None
+        self._jumped_backwards = False
+        self._opportunistic_skew = False
+
+    def observe_time_source(self, offset_ms: int, at_ms: int) -> None:
+        """An authoritative check against a declared time source."""
+        self._last_check_ms = at_ms
+        self._last_offset_ms = offset_ms
+        self._opportunistic_skew = abs(offset_ms) > self.skew_threshold_ms
+        if not self._opportunistic_skew:
+            # A good check is the only thing that clears a suspected jump: the
+            # clock has been vouched for by something outside this machine.
+            self._jumped_backwards = False
+
+    def observe_date_header(self, offset_ms: int) -> None:
+        """An opportunistic comparison against any successful response.
+
+        Free evidence, taken from traffic the node was making anyway. It can
+        reduce trust but never restore it, because a `Date` header is not an
+        authenticated time source and a compromised or merely wrong peer should
+        not be able to talk this node into believing its clock.
+        """
+        self._last_offset_ms = offset_ms
+        if abs(offset_ms) > self.skew_threshold_ms:
+            self._opportunistic_skew = True
+
+    def note_backward_jump(self, delta_ms: int) -> None:
+        if abs(delta_ms) > self.skew_threshold_ms:
+            self._jumped_backwards = True
+
+    def assess(self, now_ms: int) -> TrustAssessment:
+        if self._jumped_backwards:
+            return TrustAssessment(
+                TimeTrust.UNTRUSTED, TrustSource.BACKWARD_JUMP, self._last_offset_ms
+            )
+        if self._last_check_ms is None:
+            return TrustAssessment(TimeTrust.UNTRUSTED, TrustSource.STALENESS, None)
+        age_s = (now_ms - self._last_check_ms) / 1000
+        if self._opportunistic_skew:
+            source = TrustSource.DATE_HEADER
+            trust = TimeTrust.DRIFTING if age_s <= self.stale_s else TimeTrust.UNTRUSTED
+            return TrustAssessment(trust, source, self._last_offset_ms)
+        if age_s <= self.fresh_s:
+            return TrustAssessment(TimeTrust.TRUSTED, TrustSource.TIME_SOURCE, self._last_offset_ms)
+        if age_s <= self.stale_s:
+            return TrustAssessment(TimeTrust.DRIFTING, TrustSource.STALENESS, self._last_offset_ms)
+        return TrustAssessment(TimeTrust.UNTRUSTED, TrustSource.STALENESS, self._last_offset_ms)

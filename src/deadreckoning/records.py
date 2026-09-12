@@ -28,7 +28,7 @@ from deadreckoning.canonical import (
     redact,
     sha256_hex,
 )
-from deadreckoning.clock import HLC
+from deadreckoning.clock import HLC, TimeTrust
 from deadreckoning.runtime import Database
 
 
@@ -61,12 +61,6 @@ class Mode(StrEnum):
     DEGRADED = "DEGRADED"
     ISLANDED = "ISLANDED"
     RECONNECTING = "RECONNECTING"
-
-
-class TimeTrust(StrEnum):
-    TRUSTED = "TRUSTED"
-    DRIFTING = "DRIFTING"
-    UNTRUSTED = "UNTRUSTED"
 
 
 class IdentityState(StrEnum):
