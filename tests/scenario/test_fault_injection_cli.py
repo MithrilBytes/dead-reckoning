@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The milestone's acceptance path, driven through the CLI.
+"""A tier failing and recovering, driven through the CLI.
 
 Scripted tiers make this runnable with no network and no model, which is the
 whole reason they exist: a mode machine that could only be exercised against live
@@ -73,7 +73,9 @@ def data(workspace: Path, *args: str) -> Any:
     return json.loads(run(workspace, *args, "--json").stdout)
 
 
-def test_the_milestone_acceptance_path(workspace: Path, egress_guard: EgressLog) -> None:
+def test_a_tier_fails_and_recovers_through_the_cli(
+    workspace: Path, egress_guard: EgressLog
+) -> None:
     run(workspace, "init")
 
     assert data(workspace, "status")["mode"] == "CONNECTED"
