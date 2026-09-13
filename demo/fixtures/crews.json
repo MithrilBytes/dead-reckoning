@@ -1,0 +1,7 @@
+{
+  "crews": [
+    {"id": "C-1", "base": "truck-7", "available": true},
+    {"id": "C-2", "base": "truck-12", "available": true},
+    {"id": "C-3", "base": "hq", "available": true}
+  ]
+}

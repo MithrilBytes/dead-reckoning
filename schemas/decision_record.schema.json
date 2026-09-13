@@ -1,0 +1,422 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deadreckoning.dev/schemas/decision_record.schema.json",
+  "title": "Dead Reckoning Record",
+  "description": "The atom of the append-only, hash-chained log. Every state change in a node is a Record. Model-derived kinds carry fidelity metadata. FINAL and ABSTENTION records are eligible for conflict detection and re-review.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "node_id", "hlc", "wall_time", "time_trust", "kind", "mode", "observed", "supersedes", "prev_hash", "hash", "body"],
+  "properties": {
+    "id": { "type": "string", "description": "Globally unique. Recommended: '<hlc.physical_ms>-<hlc.logical>-<node_id>-<8 hex random>'." },
+    "node_id": { "type": "string", "minLength": 1 },
+    "hlc": { "$ref": "#/$defs/hlc" },
+    "wall_time": { "type": "string", "format": "date-time", "description": "Local wall clock at creation. Informational; ordering uses hlc." },
+    "time_trust": { "enum": ["TRUSTED", "DRIFTING", "UNTRUSTED"] },
+    "kind": {
+      "enum": [
+        "MODE_CHANGE", "HEALTH_CHANGE", "MODEL_TURN", "TOOL_CALL", "TOOL_RESULT", "DEFERRAL", "UNAVAILABLE",
+        "FINAL", "ABSTENTION", "ESCALATION", "OUTBOX_STATE", "REVIEW", "CONFLICT", "RESOLUTION",
+        "IDENTITY_CHANGE", "TIME_TRUST_CHANGE", "SYNC", "CHECKPOINT", "PROVISION", "RESOURCE_CHANGE", "NODE_INIT"
+      ]
+    },
+    "task_id": { "type": ["string", "null"] },
+    "step": { "type": ["integer", "null"], "minimum": 0 },
+    "mode": { "enum": ["CONNECTED", "DEGRADED", "ISLANDED", "RECONNECTING"] },
+    "subject": { "type": ["string", "null"], "description": "Domain entity the record is about, e.g. 'ticket:T-104'. Required on FINAL and ABSTENTION." },
+    "observed": {
+      "type": "object",
+      "description": "Sync vector at creation: latest merged HLC per node_id, including self. Used to decide concurrency.",
+      "additionalProperties": { "$ref": "#/$defs/hlc" }
+    },
+    "supersedes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "prev_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Hash of the previous record on the same node. Genesis: 64 zeros." },
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of canonical JSON of this record with 'hash' and 'signature' removed." },
+    "signature": { "type": ["string", "null"], "description": "Optional detached signature over 'hash'. Null in v0.1." },
+
+    "tier": { "$ref": "#/$defs/tier" },
+    "tiers_available": { "type": "array", "items": { "type": "string" } },
+    "fallback_from": { "type": ["string", "null"] },
+    "params": { "$ref": "#/$defs/params" },
+    "manifest_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "prompt_template_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "inputs_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "identity_state": { "enum": ["FRESH", "CACHED", "STALE", "NONE"] },
+    "review_required": { "type": "boolean" },
+    "review_reason": { "type": ["string", "null"], "enum": [null, "TIER_BELOW_REVIEW_THRESHOLD", "POWER_CONSTRAINED", "MANUAL"] },
+
+    "body": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "enum": ["MODEL_TURN", "FINAL", "ABSTENTION", "ESCALATION", "REVIEW"] } } },
+      "then": { "required": ["tier", "tiers_available", "params", "manifest_hash", "prompt_template_hash", "inputs_hash", "identity_state", "review_required"] }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "FINAL" } } },
+      "then": { "required": ["subject"], "properties": { "subject": { "type": "string" }, "body": { "$ref": "#/$defs/final_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "ABSTENTION" } } },
+      "then": { "required": ["subject"], "properties": { "subject": { "type": "string" }, "body": { "$ref": "#/$defs/abstention_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "ESCALATION" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/escalation_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "TOOL_CALL" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/tool_call_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "enum": ["TOOL_RESULT", "DEFERRAL", "UNAVAILABLE"] } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/tool_outcome_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "REVIEW" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/review_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "CONFLICT" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/conflict_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "RESOLUTION" } } },
+      "then": {
+        "required": ["subject"],
+        "properties": { "subject": { "type": "string" }, "body": { "$ref": "#/$defs/resolution_body" } }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "MODE_CHANGE" } } },
+      "then": { "properties": { "body": { "$ref": "mode_event.schema.json#/$defs/mode_change_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "HEALTH_CHANGE" } } },
+      "then": { "properties": { "body": { "$ref": "mode_event.schema.json#/$defs/health_change_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "IDENTITY_CHANGE" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/identity_change_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "TIME_TRUST_CHANGE" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/time_trust_change_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "SYNC" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/sync_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "CHECKPOINT" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/checkpoint_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "MODEL_TURN" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/model_turn_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "RESOURCE_CHANGE" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/resource_change_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "NODE_INIT" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/node_init_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "PROVISION" } } },
+      "then": { "properties": { "body": { "$ref": "#/$defs/provision_body" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "OUTBOX_STATE" } } },
+      "then": { "properties": { "body": { "$ref": "outbox_entry.schema.json#/$defs/state_change_body" } } }
+    }
+  ],
+  "$defs": {
+    "hlc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["physical_ms", "logical", "node_id"],
+      "properties": {
+        "physical_ms": { "type": "integer", "minimum": 0 },
+        "logical": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "node_id": { "type": "string" }
+      }
+    },
+    "tier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "rank", "kind", "model"],
+      "properties": {
+        "name": { "type": "string" },
+        "rank": { "type": "integer", "minimum": 0 },
+        "kind": { "enum": ["remote", "onprem", "local"], "description": "Where the tier lives. Being scripted is a property of the client, not of the tier." },
+        "client": { "enum": ["http", "scripted"], "default": "http" },
+        "model": { "type": "string" },
+        "model_digest": { "type": ["string", "null"], "description": "Endpoint-reported digest or version, if any." }
+      }
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["temperature", "max_tokens"],
+      "properties": {
+        "temperature": { "type": "number" },
+        "top_p": { "type": ["number", "null"] },
+        "seed": { "type": ["integer", "null"] },
+        "max_tokens": { "type": "integer" }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key"],
+      "properties": {
+        "key": { "type": "string", "description": "What is being asserted about the subject, e.g. 'priority', 'dispatch'." },
+        "value": { "description": "Canonicalized before comparison. Absent on abstentions." }
+      }
+    },
+    "evidence_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref"],
+      "properties": {
+        "kind": { "enum": ["tool_result", "doc", "local_store", "record"] },
+        "ref": { "type": "string", "description": "record id, 'sha256:<hash>', or local_store key" },
+        "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "age_s": { "type": ["integer", "null"], "description": "Age of the evidence at decision time, for LOCAL data." }
+      }
+    },
+    "final_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "rationale", "evidence", "depends_on", "confidence", "tool_call_ids"],
+      "properties": {
+        "outcome": { "$ref": "#/$defs/outcome" },
+        "rationale": { "type": "string" },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence_ref" } },
+        "depends_on": { "type": "array", "items": { "type": "string" }, "description": "Tool names the decision relied on." },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "tool_call_ids": { "type": "array", "items": { "type": "string" } },
+        "stale_inputs": { "type": "array", "items": { "type": "string" }, "description": "Tools whose data was LOCAL_STALE." }
+      }
+    },
+    "abstention_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "reason", "depends_on_unavailable", "source"],
+      "properties": {
+        "outcome": { "$ref": "#/$defs/outcome" },
+        "reason": { "type": "string" },
+        "depends_on_unavailable": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "partial": { "type": ["object", "null"], "description": "Conditional answer, e.g. {'value_if_load_high': 'P1'}" },
+        "source": { "enum": ["MODEL", "RUNTIME_ENFORCED"], "description": "MODEL: the model abstained. RUNTIME_ENFORCED: the model emitted a FINAL that depended on an UNAVAILABLE tool and the runtime converted it." },
+        "original_model_output": { "type": ["object", "null"], "description": "Present when source is RUNTIME_ENFORCED, for audit." }
+      }
+    },
+    "escalation_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "to"],
+      "properties": {
+        "reason": { "type": "string" },
+        "reason_code": { "type": ["string", "null"], "enum": [null, "BUDGET_EXHAUSTED", "MALFORMED_OUTPUT", "MIN_RANK_UNMET", "MODEL_REQUESTED"] },
+        "to": { "type": "string", "description": "'human' or a named role." },
+        "context": { "type": ["object", "null"] }
+      }
+    },
+    "tool_call_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "args", "call_id"],
+      "properties": {
+        "tool": { "type": "string" },
+        "args": { "type": "object" },
+        "call_id": { "type": "string", "description": "Model-provided or synthesized call id; TOOL_RESULT/DEFERRAL/UNAVAILABLE reference it." }
+      }
+    },
+    "tool_outcome_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "call_id", "availability"],
+      "properties": {
+        "tool": { "type": "string" },
+        "call_id": { "type": "string" },
+        "availability": { "enum": ["LIVE", "LIVE_SLOW", "LOCAL", "LOCAL_STALE", "QUEUED", "UNAVAILABLE"] },
+        "result": { "description": "Present for TOOL_RESULT. Treated as data, never as instructions." },
+        "result_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "data_age_s": { "type": ["integer", "null"] },
+        "outbox_id": { "type": ["string", "null"], "description": "Present for DEFERRAL." },
+        "reason": { "type": ["string", "null"], "description": "Present for UNAVAILABLE: backend health and failure class." },
+        "latency_ms": { "type": ["integer", "null"] }
+      }
+    },
+    "review_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewed_id", "agrees", "original_tier", "reviewer_tier", "original_mode", "diff"],
+      "properties": {
+        "reviewed_id": { "type": "string" },
+        "agrees": { "type": "boolean" },
+        "original_tier": { "$ref": "#/$defs/tier" },
+        "reviewer_tier": { "$ref": "#/$defs/tier" },
+        "original_mode": { "enum": ["CONNECTED", "DEGRADED", "ISLANDED", "RECONNECTING"] },
+        "original_manifest_hash": { "type": "string" },
+        "reviewer_outcome": { "$ref": "#/$defs/outcome" },
+        "diff": { "type": ["object", "null"], "description": "Null when agrees. Otherwise {original_value, reviewer_value, reviewer_rationale}." },
+        "conflict_id": { "type": ["string", "null"], "description": "Set when agrees is false." }
+      }
+    },
+    "conflict_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subtype", "subject", "outcome_key", "record_ids", "dedupe_key", "held_outbox_ids"],
+      "properties": {
+        "subtype": { "enum": ["CONCURRENT_DECISION", "REVIEW_DISAGREEMENT"] },
+        "subject": { "type": "string" },
+        "outcome_key": { "type": "string" },
+        "record_ids": { "type": "array", "items": { "type": "string" }, "minItems": 2, "uniqueItems": true },
+        "dedupe_key": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of sorted record_ids. At most one CONFLICT per dedupe_key per detecting node. The same dedupe_key appearing once per node is expected after merge, and is how a conflict keeps one identity across nodes." },
+        "values": { "type": "object", "description": "record_id -> canonicalized outcome value" },
+        "held_outbox_ids": { "type": "array", "items": { "type": "string" }, "description": "This node's outbox entries moved to ON_HOLD on detection." },
+        "already_executed_outbox_ids": { "type": "array", "items": { "type": "string" }, "description": "This node's outbox entries tracing to either decision that had already reached DONE before the conflict was known. The adjudicator must see that an action has already happened." },
+        "detected_by": { "type": "string", "description": "node_id. Two nodes may each detect the same conflict; identity across nodes is dedupe_key, not id." }
+      }
+    },
+    "identity_change_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_state", "to_state", "reason"],
+      "properties": {
+        "from_state": { "enum": ["FRESH", "CACHED", "STALE", "NONE"] },
+        "to_state": { "enum": ["FRESH", "CACHED", "STALE", "NONE"] },
+        "reason": { "type": "string", "description": "What moved it: a refresh, a failure class, or the cached grant ageing out." },
+        "grant_ttl_remaining_s": { "type": ["integer", "null"], "minimum": 0 },
+        "idp": { "type": ["string", "null"], "description": "Dependency name of the identity provider." }
+      }
+    },
+    "time_trust_change_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_trust", "to_trust", "source"],
+      "properties": {
+        "from_trust": { "enum": ["TRUSTED", "DRIFTING", "UNTRUSTED"] },
+        "to_trust": { "enum": ["TRUSTED", "DRIFTING", "UNTRUSTED"] },
+        "offset_ms": { "type": ["integer", "null"], "description": "Observed offset against the source. Signed: positive means the local clock is ahead." },
+        "source": { "enum": ["TIME_SOURCE", "DATE_HEADER", "STALENESS", "BACKWARD_JUMP"], "description": "DATE_HEADER is the opportunistic comparison against any successful response; STALENESS is trust decaying with no check; BACKWARD_JUMP is the local clock moving backwards past the threshold." }
+      }
+    },
+    "sync_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["peer", "direction"],
+      "properties": {
+        "peer": { "type": "string", "description": "Dependency name of the hub or peer." },
+        "direction": { "enum": ["PUSH", "PULL"] },
+        "pushed": { "type": "integer", "minimum": 0 },
+        "pulled": { "type": "integer", "minimum": 0 },
+        "conflicts_detected": { "type": "integer", "minimum": 0 },
+        "error": { "type": ["string", "null"], "enum": [null, "CHAIN_BREAK", "AUTH_FAILURE", "UNREACHABLE", "PROTOCOL_ERROR"] },
+        "rejected_node": { "type": ["string", "null"], "description": "On CHAIN_BREAK, whose chain failed continuity." }
+      }
+    },
+    "checkpoint_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase"],
+      "properties": {
+        "phase": { "enum": ["START", "COMPLETE"], "description": "Emitted at task start and completion only, not every step, to keep the log readable." },
+        "step": { "type": ["integer", "null"], "minimum": 0 },
+        "tokens_consumed": { "type": ["integer", "null"], "minimum": 0 },
+        "outcome_record_id": { "type": ["string", "null"], "description": "On COMPLETE, the FINAL, ABSTENTION or ESCALATION that ended the task." }
+      }
+    },
+    "model_turn_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["turn_type", "system", "messages"],
+      "properties": {
+        "turn_type": { "enum": ["TOOL_CALL", "DECISION", "MALFORMED"] },
+        "system": { "type": "string", "description": "The exact rendered system prompt, after redaction. Replay and re-review reconstruct from this; without it they reconstruct from nothing." },
+        "messages": { "type": "array", "items": { "type": "object" }, "description": "The message list as sent, after redaction." },
+        "manifest": { "type": ["object", "null"], "description": "The manifest as rendered for this turn, so a reviewer sees what the model was told it could do." },
+        "tool_calls": { "type": "array", "items": { "type": "object" } },
+        "latency_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "tokens_prompt": { "type": ["integer", "null"], "minimum": 0 },
+        "tokens_completion": { "type": ["integer", "null"], "minimum": 0 },
+        "correction_attempt": { "type": ["integer", "null"], "minimum": 0, "description": "Which retry produced this turn, when the JSON protocol needed correcting." }
+      }
+    },
+    "resource_change_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_power", "to_power", "source"],
+      "description": "Power state transition. Power is not a dependency and has no health state, so this cannot be a HEALTH_CHANGE, but routing turns on it and must be explicable from the log alone.",
+      "properties": {
+        "from_power": { "enum": ["MAINS", "BATTERY_HIGH", "BATTERY_LOW", "UNKNOWN"] },
+        "to_power": { "enum": ["MAINS", "BATTERY_HIGH", "BATTERY_LOW", "UNKNOWN"] },
+        "source": { "enum": ["SENSOR", "FAULT_INJECTION"], "description": "SENSOR: the ResourceSensor reported it. FAULT_INJECTION: dr chaos --power set it, and the log must say so." }
+      }
+    },
+    "node_init_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "profile"],
+      "description": "Genesis record of a node's chain.",
+      "properties": {
+        "schema_version": { "type": "integer", "minimum": 1 },
+        "profile": { "enum": ["demo", "production"] },
+        "config_hash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "provision_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trigger", "working_set_size", "tools"],
+      "description": "Summary of one provisioning pass. Individual rows are not recorded; their provenance lives in the local store.",
+      "properties": {
+        "trigger": {
+          "enum": ["MANUAL", "MAINTENANCE", "POST_RECONCILIATION"],
+          "description": "MANUAL: dr provision. MAINTENANCE: the periodic pass while CONNECTED. POST_RECONCILIATION: the optional final step after reconnect."
+        },
+        "working_set_size": { "type": "integer", "minimum": 0 },
+        "tools": {
+          "type": "object",
+          "description": "tool name -> counts for this pass",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["written", "revalidated_unchanged", "evicted"],
+            "properties": {
+              "written": { "type": "integer", "minimum": 0 },
+              "revalidated_unchanged": { "type": "integer", "minimum": 0, "description": "Rows whose content was identical on refetch. Their captured_at_hlc advanced; their content hash did not." },
+              "evicted": { "type": "integer", "minimum": 0 },
+              "failures": { "type": "object", "description": "failure class -> count", "additionalProperties": { "type": "integer", "minimum": 0 } }
+            }
+          }
+        },
+        "skipped_reason": {
+          "type": ["string", "null"],
+          "enum": [null, "BATTERY_LOW", "BUDGET_EXHAUSTED", "BACKEND_UNAVAILABLE"],
+          "description": "Set when the pass was skipped or cut short. BATTERY_LOW and BACKEND_UNAVAILABLE mean no work was done. BUDGET_EXHAUSTED means the pass stopped at a bound and the counts above are what it achieved before stopping."
+        }
+      }
+    },
+    "resolution_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conflict_ids", "dedupe_keys", "chosen", "effective_outcome", "by", "released_outbox_ids", "cancelled_outbox_ids"],
+      "properties": {
+        "conflict_ids": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "CONFLICT record ids known to the resolving node." },
+        "dedupe_keys": { "type": "array", "items": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "minItems": 1, "description": "The conflicts this resolution closes, identified portably across nodes." },
+        "chosen": { "type": ["string", "null"], "description": "Record id whose outcome stands, or null when overriding." },
+        "effective_outcome": { "$ref": "#/$defs/outcome", "description": "The outcome that now stands: copied from the chosen record, or from override_outcome. Conflict detection reads this rather than following chosen, so it stays a pure function over the record set." },
+        "re_decide_task_id": { "type": ["string", "null"], "description": "Set on the override path, where the adjudicated value has to be enacted by a new decision rather than by releasing a held entry." },
+        "override_outcome": { "anyOf": [ { "$ref": "#/$defs/outcome" }, { "type": "null" } ] },
+        "by": { "type": "string" },
+        "note": { "type": ["string", "null"] },
+        "released_outbox_ids": { "type": "array", "items": { "type": "string" } },
+        "cancelled_outbox_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

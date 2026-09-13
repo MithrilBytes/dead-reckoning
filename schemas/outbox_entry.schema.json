@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deadreckoning.dev/schemas/outbox_entry.schema.json",
+  "title": "Dead Reckoning Outbox Entry",
+  "description": "A deferred side effect: the tool, its arguments, the idempotency key, the preconditions and observed values that justified it, and its lifecycle state. Entries are mutable (state advances); every state change also emits an OUTBOX_STATE record so the history is immutable.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "node_id", "created_hlc", "idempotency_key", "tool", "args", "subject", "consequence", "side_effect", "decision_id", "deferral_record_id", "preconditions", "state", "expires_at", "attempts", "history"],
+  "properties": {
+    "id": { "type": "string" },
+    "node_id": { "type": "string", "description": "The node that holds execution rights. Peers may hold a replica for visibility." },
+    "created_hlc": { "$ref": "decision_record.schema.json#/$defs/hlc" },
+    "idempotency_key": { "type": "string", "description": "Unique per node; across nodes, the lower created_hlc wins execution rights." },
+    "tool": { "type": "string" },
+    "args": { "type": "object" },
+    "subject": { "type": ["string", "null"] },
+    "consequence": { "enum": ["LOW", "MEDIUM", "HIGH"] },
+    "side_effect": { "enum": ["IDEMPOTENT", "NON_IDEMPOTENT"] },
+    "decision_id": { "type": "string", "description": "The FINAL (or MODEL_TURN) record whose reasoning produced this intent. Used to trace conflicts and reviews to held entries." },
+    "deferral_record_id": { "type": "string", "description": "The DEFERRAL record created atomically with this entry." },
+    "preconditions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["check", "args", "observed_value", "observed_hlc", "observed_source"],
+        "properties": {
+          "check": { "type": "string" },
+          "args": { "type": "object" },
+          "observed_value": { "description": "Value seen when the decision was made." },
+          "observed_hlc": { "$ref": "decision_record.schema.json#/$defs/hlc" },
+          "observed_source": { "enum": ["LIVE", "LOCAL", "LOCAL_STALE"], "description": "Where the observed value came from." },
+          "current_value": { "description": "Value seen at the most recent drain attempt. Absent until drained." },
+          "holds": { "type": ["boolean", "null"], "description": "Result of the most recent drain check. Null until drained." }
+        }
+      }
+    },
+    "state": {
+      "enum": [
+        "PENDING", "AWAITING_APPROVAL", "READY", "EXECUTING", "DONE", "FAILED",
+        "PRECONDITION_FAILED", "EXPIRED", "CANCELLED", "ON_HOLD", "SUPERSEDED_BY_PEER"
+      ]
+    },
+    "approval": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "required": { "type": "boolean" },
+        "reason": { "type": ["string", "null"], "description": "Which rule required it: tool policy, identity state, or mode. IDENTITY_INSUFFICIENT means the authority table refused it at drain." },
+        "decision": { "enum": [null, "APPROVED", "REJECTED"] },
+        "by": { "type": ["string", "null"] },
+        "at_hlc": { "anyOf": [ { "$ref": "decision_record.schema.json#/$defs/hlc" }, { "type": "null" } ] },
+        "note": { "type": ["string", "null"] }
+      }
+    },
+    "hold": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "conflict_id": { "type": "string" },
+        "previous_state": { "type": "string" }
+      }
+    },
+    "expires_at": { "type": "string", "format": "date-time", "description": "Wall time; compared using the node's best current time. If time trust is UNTRUSTED, expiry is evaluated conservatively (treated as expired if either clock says so)." },
+    "attempts": { "type": "integer", "minimum": 0 },
+    "last_error": { "type": ["string", "null"] },
+    "last_failure_class": { "type": ["string", "null"] },
+    "result_record_id": { "type": ["string", "null"], "description": "TOOL_RESULT record from execution, when DONE." },
+    "re_decide_task_id": { "type": ["string", "null"], "description": "Set on PRECONDITION_FAILED." },
+    "superseded_by": { "type": ["string", "null"], "description": "Peer outbox entry id, when SUPERSEDED_BY_PEER." },
+    "history": {
+      "type": "array",
+      "description": "Ordered list of OUTBOX_STATE record ids. The authoritative history lives in those records; this is an index.",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "state_change_body": {
+      "title": "OUTBOX_STATE record body",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outbox_id", "idempotency_key", "from_state", "to_state", "reason"],
+      "properties": {
+        "outbox_id": { "type": "string" },
+        "idempotency_key": { "type": "string" },
+        "from_state": { "type": ["string", "null"] },
+        "to_state": { "type": "string" },
+        "reason": {
+          "type": "string",
+          "description": "Machine-readable: CREATED, APPROVAL_REQUIRED, APPROVED, REJECTED, PRECONDITIONS_HOLD, PRECONDITION_FAILED, EXECUTED, EXEC_ERROR, EXPIRED, DUPLICATE_REJECTED, HELD_FOR_CONFLICT, RELEASED_BY_RESOLUTION, CANCELLED_BY_RESOLUTION, CANCELLED_BY_REDECISION, SUPERSEDED_BY_PEER, UNKNOWN_EXECUTION_STATE"
+        },
+        "precondition_deltas": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["check", "observed_value", "current_value"],
+            "properties": {
+              "check": { "type": "string" },
+              "observed_value": {},
+              "current_value": {}
+            }
+          }
+        },
+        "actor": { "type": ["string", "null"], "description": "Human or 'runtime'." },
+        "note": { "type": ["string", "null"] },
+        "identity_state_at_change": { "enum": ["FRESH", "CACHED", "STALE", "NONE"] },
+        "mode_at_change": { "enum": ["CONNECTED", "DEGRADED", "ISLANDED", "RECONNECTING"] }
+      }
+    }
+  }
+}

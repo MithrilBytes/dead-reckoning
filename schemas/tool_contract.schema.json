@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deadreckoning.dev/schemas/tool_contract.schema.json",
+  "title": "Dead Reckoning Tool Contract",
+  "description": "A tool's declaration of how it behaves when its backend is unavailable, its side-effect class, its consequence level, and the preconditions that must hold for deferred execution. Validated at registry startup.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "backend", "offline_policy", "side_effect", "consequence"],
+  "properties": {
+    "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "description": { "type": "string", "description": "Shown to the model in the manifest. One sentence." },
+    "backend": {
+      "type": ["string", "null"],
+      "description": "Dependency name whose health governs availability. Null means the tool is always local and never QUEUED or UNAVAILABLE."
+    },
+    "offline_policy": {
+      "enum": ["LOCAL", "QUEUE", "FAIL"],
+      "description": "LOCAL: run the local substitute. QUEUE: record intent to the outbox. FAIL: return UNAVAILABLE; conclusions depending on it must abstain."
+    },
+    "side_effect": { "enum": ["NONE", "IDEMPOTENT", "NON_IDEMPOTENT"] },
+    "consequence": { "enum": ["LOW", "MEDIUM", "HIGH"] },
+    "approval": {
+      "enum": ["NEVER", "WHEN_NOT_CONNECTED", "WHEN_IDENTITY_NOT_FRESH", "ALWAYS"],
+      "default": "NEVER",
+      "description": "Minimum approval policy. The identity authority table may tighten it at call or drain time; it can never loosen it."
+    },
+    "preconditions": {
+      "type": "array",
+      "description": "For QUEUE tools. Each names a registered checker and maps call args to checker args.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["check", "args_from"],
+        "properties": {
+          "check": { "type": "string", "description": "Registered precondition checker name, e.g. 'ticket_unassigned'." },
+          "args_from": {
+            "type": "object",
+            "description": "checker_arg_name -> call_arg_name",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      },
+      "default": []
+    },
+    "idempotency_key": {
+      "type": ["string", "null"],
+      "description": "Template over call args, e.g. 'dispatch:{ticket_id}'. Null means sha256(name + canonical(args)).",
+      "default": null
+    },
+    "expiry_s": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "For QUEUE tools: seconds a deferred intent remains valid. Null means no expiry (discouraged)."
+    },
+    "staleness_budget_s": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "For LOCAL tools: maximum acceptable age of local data before it is reported LOCAL_STALE."
+    },
+    "fail_when_stale": {
+      "type": "boolean",
+      "default": false,
+      "description": "For LOCAL tools: treat stale data as UNAVAILABLE instead of LOCAL_STALE."
+    },
+    "prefer_local_when_slow": {
+      "type": "boolean",
+      "default": false,
+      "description": "Use the local substitute when the backend is SLOW rather than waiting."
+    },
+    "live_timeout_s": { "type": "number", "minimum": 0.1, "default": 10 },
+    "slow_timeout_s": { "type": "number", "minimum": 0.1, "default": 30, "description": "Extended timeout used when backend is SLOW and the live path is taken." },
+    "canary": {
+      "type": ["object", "null"],
+      "description": "How to actively probe the backend. Null means passive observation only.",
+      "additionalProperties": false,
+      "properties": {
+        "method": { "enum": ["HEAD", "GET"], "default": "HEAD" },
+        "path": { "type": "string", "default": "/health" }
+      }
+    },
+    "args_schema": {
+      "type": "object",
+      "description": "JSON Schema for the tool's arguments; passed to the model for native tool calling and used to validate JSON-protocol calls."
+    },
+    "hydrate": {
+      "type": ["object", "null"],
+      "default": null,
+      "additionalProperties": false,
+      "description": "How to fill this tool's rows in the local store while its backend is reachable. Null means rows arrive by the path named in local_source instead. Must declare subject_types with arg_from_subject, or static_args, or both.",
+      "anyOf": [
+        { "required": ["subject_types", "arg_from_subject"] },
+        { "required": ["static_args"] }
+      ],
+      "properties": {
+        "subject_types": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "description": "Subject type prefixes this tool serves, for example 'ticket' or 'feeder'. A working set entry whose identifier begins with a listed prefix is hydrated by this tool."
+        },
+        "arg_from_subject": {
+          "type": "string",
+          "description": "The single tool argument that receives the id component of a matching subject identifier. The id is passed as an opaque string; the runtime never parses inside it."
+        },
+        "static_args": {
+          "type": "array",
+          "items": { "type": "object" },
+          "minItems": 1,
+          "description": "Fixed argument objects fetched once per pass regardless of the working set. Serves tools that take no subject, such as list_open_tickets with [{}], and tools keyed on something the working set does not name."
+        },
+        "max_rows": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 5000,
+          "description": "Cap on stored rows for this tool. Once at the cap, rows whose subject is absent from the current working set are evicted oldest first; rows produced by static_args are evicted oldest first among themselves."
+        }
+      }
+    },
+    "local_source": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Names the non-fetch path by which this tool's rows arrive, for tools whose local data is entered locally and never fetched. Such rows are never evicted, because they cannot be refetched."
+    },
+    "verify_supported": {
+      "type": "boolean",
+      "default": false,
+      "description": "Tool implements verify(idempotency_key) -> executed|not_executed|unknown, used to reconcile EXECUTING entries found on restart."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "offline_policy": { "const": "QUEUE" } } },
+      "then": {
+        "required": ["expiry_s"],
+        "properties": { "side_effect": { "enum": ["IDEMPOTENT", "NON_IDEMPOTENT"] } }
+      }
+    },
+    {
+      "if": { "properties": { "offline_policy": { "const": "LOCAL" } } },
+      "then": {
+        "required": ["staleness_budget_s"],
+        "anyOf": [
+          { "required": ["hydrate"], "properties": { "hydrate": { "type": "object" } } },
+          { "required": ["local_source"], "properties": { "local_source": { "type": "string" } } }
+        ]
+      }
+    },
+    {
+      "if": { "properties": { "side_effect": { "const": "NON_IDEMPOTENT" } } },
+      "then": { "properties": { "idempotency_key": { "type": "string" } }, "required": ["idempotency_key"] }
+    },
+    {
+      "if": { "properties": { "backend": { "type": "null" } } },
+      "then": { "properties": { "offline_policy": { "const": "LOCAL" } } }
+    }
+  ]
+}

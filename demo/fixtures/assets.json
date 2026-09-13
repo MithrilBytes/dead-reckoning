@@ -1,0 +1,12 @@
+{
+  "feeders": [
+    {"id": "F-31", "substation": "SB-3", "customers": 1840, "priority_customers": ["C-HOSP-1"]},
+    {"id": "F-32", "substation": "SB-3", "customers": 620, "priority_customers": []},
+    {"id": "F-33", "substation": "SB-3", "customers": 2210, "priority_customers": ["C-SCHOOL-4", "C-WATER-2"]}
+  ],
+  "priority_customers": [
+    {"id": "C-HOSP-1", "type": "hospital", "feeder": "F-31", "backup_power_h": 8},
+    {"id": "C-SCHOOL-4", "type": "school", "feeder": "F-33", "backup_power_h": 0},
+    {"id": "C-WATER-2", "type": "water_pumping", "feeder": "F-33", "backup_power_h": 4}
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "tickets": [
+    {"id": "T-101", "feeder": "F-31", "report": "Hospital on backup power, about 8 h remaining", "open": true, "assigned": false},
+    {"id": "T-102", "feeder": "F-32", "report": "600 customers out, no injuries", "open": true, "assigned": false},
+    {"id": "T-103", "feeder": "F-33", "report": "Water pumping station on backup, 4 h", "open": true, "assigned": false},
+    {"id": "T-104", "feeder": "F-33", "report": "Lines down near the school", "open": true, "assigned": false},
+    {"id": "T-105", "feeder": "F-31", "report": "Single residence out", "open": true, "assigned": false},
+    {"id": "T-106", "feeder": "F-32", "report": "Sensor: feeder load anomaly", "open": true, "assigned": false},
+    {"id": "T-107", "feeder": "F-33", "report": "Duplicate of T-104 from a second caller", "open": true, "assigned": false},
+    {"id": "T-108", "feeder": "F-31", "report": "Smell of burning near transformer TX-3104", "open": true, "assigned": false}
+  ]
+}
