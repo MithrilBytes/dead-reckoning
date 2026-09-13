@@ -6,6 +6,7 @@ build-backend = "hatchling.build"
 name = "deadreckoning"
 version = "0.1.0"
 description = "An agent runtime for environments where dependencies fail without warning."
+readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [{ name = "MithrilBytes" }]
@@ -33,7 +34,7 @@ packages = ["src/deadreckoning"]
 
 [tool.ruff]
 line-length = 100
-src = ["src", "tests", "demo"]
+src = ["src", "tests", "demo", "hub"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF", "ANN", "BLE", "TRY"]
@@ -43,7 +44,7 @@ ignore = ["ANN401", "TRY003"]
 "tests/*" = ["ANN"]
 
 [tool.pyright]
-include = ["src", "tests", "demo"]
+include = ["src", "tests", "demo", "hub"]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.11"
