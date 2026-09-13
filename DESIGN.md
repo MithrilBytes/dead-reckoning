@@ -144,8 +144,8 @@ truck, and records that the choice was power constrained when that is the only
 reason a review was needed.
 
 Decisions taken below a task class's review threshold are flagged. When a better
-tier becomes reachable they are re-examined, with evidence merged from every node
-, not only what the deciding node had. The reviewer must be strictly better
+tier becomes reachable they are re-examined, with evidence merged from every
+node, not only what the deciding node had. The reviewer must be strictly better
 than the tier under review: without that, a tier that survived the outage
 qualifies as its own reviewer and the queue fills with reviews that agree by
 construction.
