@@ -2,8 +2,9 @@
 """The `dr` command line.
 
 Every command takes --json, because the first thing anyone does with a log like
-this is feed it to something else. Nothing here opens a network connection: the
-commands in this milestone read and write one local database and nothing more.
+this is feed it to something else. Only `dr sync` opens a network connection, to
+the hub or peer it is given. Every other command reads and writes one local
+database and nothing more.
 """
 
 from __future__ import annotations
