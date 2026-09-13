@@ -55,10 +55,11 @@ def test_pyproject_takes_the_version_from_the_package() -> None:
 
 
 def test_the_python_floor_agrees_everywhere() -> None:
-    """requires-python, the type checker's target and the README state one version."""
+    """requires-python, the type checker's target, the README and make install state one version."""
     pyproject = _pyproject()
     floor: str = pyproject["project"]["requires-python"].removeprefix(">=")
     assert re.fullmatch(r"3\.\d+", floor)
     assert pyproject["tool"]["pyright"]["pythonVersion"] == floor
     assert f"Python {floor} or newer" in (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert f"PYTHON ?= python{floor}\n" in (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
     assert sys.version_info >= tuple(int(part) for part in floor.split("."))

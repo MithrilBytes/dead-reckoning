@@ -16,7 +16,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-SOURCE_DIRS = ("src", "tests", "demo", "hub")
+SOURCE_DIRS = ("src", "tests", "demo", "hub", "scripts")
 
 SUFFIXES = (".py", ".sh")
 

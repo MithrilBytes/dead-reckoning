@@ -161,6 +161,9 @@ cp dr.example.toml dr.toml
 ```
 
 Python 3.13 or newer. Runtime dependencies are httpx, pydantic, typer and rich.
+`make install` builds `.venv` with `python3.13` and pins the development tools to the
+exact versions in `constraints.txt`. Name a newer interpreter with
+`make install PYTHON=python3.14`. `make lock` refreshes those pins.
 
 ## Design
 
