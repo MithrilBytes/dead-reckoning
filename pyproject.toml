@@ -1,5 +1,7 @@
 [build-system]
-# Hatchling writes PEP 639 license metadata from 1.27.0 on.
+# Hatchling writes the PEP 639 license fields only into core metadata 2.4 and makes
+# 2.4 its default from 1.27.0 on.
+# https://hatch.pypa.io/latest/history/hatchling/
 requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
