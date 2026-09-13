@@ -243,9 +243,9 @@ class Node:
         is nothing to reconcile, and entering RECONNECTING would start a sequence
         with no steps that could ever finish.
 
-        Empty until there is something that can queue. The outbox arrives in M3,
-        the review queue in M4, and unsynced records in M5; each adds its own
-        dependencies here.
+        Still empty. The outbox, the review queue and unsynced records all hold
+        work that waits on a dependency coming back, but none of them reports
+        that work here yet.
         """
         return frozenset()
 

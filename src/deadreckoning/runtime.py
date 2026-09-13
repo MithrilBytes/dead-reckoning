@@ -4,8 +4,8 @@
 One database per node. Write ahead logging, because a node is read by the CLI
 while the agent loop is writing, and a truck loses power without asking.
 
-Tables arrive with the milestone that needs them. Creating a table before there is
-code that can fill it would mean guessing at its columns.
+Each table arrives with the code that fills it. Creating one any earlier would
+mean guessing at its columns.
 """
 
 from __future__ import annotations

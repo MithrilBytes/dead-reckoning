@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Choosing which model answers, and stamping the choice onto what it decides.
 
-Two rules, and they disagree on purpose. R1 takes the best model available.
-Under a low battery the power rule takes the cheapest one that still meets the
-task's floor, which on a truck working an outage is usually the right trade. The
-router computes both, uses one, and records the difference, because a decision
-made at reduced fidelity to save power is a decision somebody should be able to
-find later and look at again.
+Two rules, and they can disagree. The fidelity rule takes the best model
+available. Under a low battery the power rule takes the cheapest one that still
+meets the task's floor, which on a truck working an outage is usually the right
+trade. The router computes both, uses one, and records the difference, because
+a decision made at reduced fidelity to save power is a decision somebody should
+be able to find later and look at again.
 
 The floor itself is the part that stops this being a fallback chain. A task class
 can say it will not be answered below a certain fidelity, and if nothing meets
@@ -94,7 +94,7 @@ class Router:
         if not eligible:
             raise MinRankUnmetError(task_class, min_rank, [t.name for t in usable])
 
-        # R1 alone: the best thing available that meets the floor.
+        # The fidelity rule alone: the best thing available that meets the floor.
         unconstrained = eligible[0]
 
         chosen = unconstrained
