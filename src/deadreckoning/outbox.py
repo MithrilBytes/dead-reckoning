@@ -325,6 +325,24 @@ class Outbox:
         """Entries whose reasoning came from one of these decisions."""
         return [e for e in self.all() if e.decision_id in decision_ids]
 
+    def link_decision(self, entry_ids: list[str], decision_id: str) -> None:
+        """Re-point entries at the decision they turned out to belong to.
+
+        An intent is recorded mid-task, when the only record that exists is the
+        turn that produced it. The decision it serves is written at the end. A
+        conflict is about decisions, so an entry still pointing at a turn would
+        never be found when its decision came under dispute, and would fire while
+        a person was still deciding whether that decision was right.
+
+        Entries are not append only; records are. This rewrites a pointer, not a
+        history: every state change the entry has been through is already in the
+        log.
+        """
+        for entry_id in entry_ids:
+            self._db.connection.execute(
+                "UPDATE outbox SET decision_id = ? WHERE id = ?", (decision_id, entry_id)
+            )
+
     # --- approval ------------------------------------------------------------
 
     def approve(self, entry: Entry, by: str, note: str | None = None) -> Transition:

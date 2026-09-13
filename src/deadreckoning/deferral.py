@@ -59,6 +59,7 @@ class OutboxDeferrer:
         self._hlc = hlc
         self.context: DeferralContext | None = None
         self.duplicates: list[str] = []
+        self.created: list[str] = []
 
     def authority(self, contract: ToolContract) -> Authority:
         context = self.context
@@ -110,7 +111,16 @@ class OutboxDeferrer:
         except DuplicateIntentError as exc:
             self.duplicates.append(exc.key)
             return exc.existing_id
+        self.created.append(entry.id)
         return entry.id
 
     def entry(self, entry_id: str) -> Entry | None:
         return self.outbox.get(entry_id)
+
+    def link_to_decision(self, decision_id: str) -> list[str]:
+        """Point everything deferred during this task at the decision it serves."""
+        linked = list(self.created)
+        if linked:
+            self.outbox.link_decision(linked, decision_id)
+        self.created.clear()
+        return linked
