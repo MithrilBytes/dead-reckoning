@@ -17,6 +17,7 @@ from typing import Annotated, Any
 import typer
 from rich.table import Table
 
+from deadreckoning import __version__
 from deadreckoning.canonical import content_hash
 from deadreckoning.cli_chaos import chaos
 from deadreckoning.cli_outbox import approve, outbox, reject
@@ -49,6 +50,27 @@ app.command()(reject)
 app.command()(sync)
 app.command()(conflicts)
 app.command()(resolve)
+
+
+def _print_version(requested: bool) -> None:
+    if requested:
+        typer.echo(__version__)
+        raise typer.Exit
+
+
+@app.callback()
+def options(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_print_version,
+            is_eager=True,
+            help="Print the version and exit.",
+        ),
+    ] = False,
+) -> None:
+    """Eager, so --version answers before any command goes looking for its config."""
 
 
 @app.command()
