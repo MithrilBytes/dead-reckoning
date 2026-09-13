@@ -1,5 +1,6 @@
 [build-system]
-requires = ["hatchling"]
+# Hatchling writes PEP 639 license metadata from 1.27.0 on.
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
@@ -8,7 +9,9 @@ version = "0.1.0"
 description = "An agent runtime for environments where dependencies fail without warning."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { file = "LICENSE" }
+# An SPDX license expression and the files that carry it, as PEP 639 defines them.
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "MithrilBytes" }]
 dependencies = [
     "httpx>=0.27",
@@ -53,4 +56,8 @@ reportMissingTypeStubs = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The pytest script, unlike python -m pytest, leaves the working directory off sys.path,
+# and the scenario tests import demo and hub from the repository root.
+# https://docs.pytest.org/en/stable/explanation/pythonpath.html
+pythonpath = ["."]
 addopts = "-q"
