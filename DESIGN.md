@@ -58,8 +58,8 @@ is not the same as healthy, and the router will not select an unprobed tier.
 
 The operating mode is a pure function of the health vector, the previous mode, and
 which dependencies have reconciliation work waiting. Pure means it reads no clock
-and no database, which is what allows every combination of inputs to be enumerated
-in a test rather than sampled.
+and no database, so every combination of inputs can be enumerated in a test
+instead of sampled.
 
 Reconnecting is absorbing: a dependency returning mid-sequence does not knock the
 node out of work it has already started. Islanded means no model off this machine
@@ -67,10 +67,10 @@ is reachable, which is the condition the runtime is named for. Connected require
 every dependency that gates capability to be usable, excluding peers, because a
 node is not degraded merely for having a peer that is switched off.
 
-The asymmetry between falling and rising is deliberate. Losing a dependency takes
-effect at once, because an agent that believes it still has a capability it has
-lost will fabricate. Regaining one waits out a dwell, because a link that returns
-for three seconds has not really returned.
+Falling and rising are treated differently. Losing a dependency takes effect at
+once, because an agent that believes it still has a capability it has lost will
+fabricate. Regaining one waits out a dwell, because a link that returns for three
+seconds has not really returned.
 
 ## The manifest
 
@@ -96,11 +96,20 @@ copy, record the intent for later, or refuse. It also declares its side effect
 class, its consequence level, the preconditions a deferred call must satisfy, how
 stale its local data may be, and how its idempotency key is derived.
 
-Dispatch is two stages. The first reads backend health and offline policy alone.
-The second applies identity and approval, and can only tighten: it may move a call
-from live to queued, or from queued to refused, never the reverse. Approval is
-always held by the outbox, even against a healthy backend, so there is one hold
-mechanism rather than two and the hold is reviewable.
+Dispatch is designed as two stages. The first reads backend health and offline
+policy alone. The second applies identity and approval, and can only tighten: it
+may move a call from live to queued, or from queued to refused, never the reverse.
+Approval is meant to be held by the outbox even against a healthy backend, so that
+there is one hold mechanism and the hold is reviewable.
+
+The second stage is not yet applied on the live dispatch path.
+`ToolEnforcer.dispatch` reads only backend health and offline policy and never
+calls `authority_for`, so a call whose backend is healthy runs live whatever the
+identity state or the tool's approval setting. Identity and approval take effect
+only for calls that were queued anyway: `authority_for` decides whether an outbox
+entry needs approval when the entry is created, and is consulted again when the
+outbox drains, where it can cancel the entry, leave it waiting, or hold it for
+approval.
 
 The enforcer decides the path, not the model. And if the model produces a final
 answer that depends on a tool which returned unavailable, the runtime converts it
@@ -136,7 +145,7 @@ reason a review was needed.
 
 Decisions taken below a task class's review threshold are flagged. When a better
 tier becomes reachable they are re-examined, with evidence merged from every node
-rather than only what the deciding node had. The reviewer must be strictly better
+, not only what the deciding node had. The reviewer must be strictly better
 than the tier under review: without that, a tier that survived the outage
 qualifies as its own reviewer and the queue fills with reviews that agree by
 construction.
