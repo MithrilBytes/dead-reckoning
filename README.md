@@ -82,7 +82,7 @@ Legend: present, partial, not observed, or not applicable to that project.
 | Capability | Offline agent runtimes | Durable execution | Local-first sync | Model routers | Identity continuity | Dead Reckoning |
 |---|---|---|---|---|---|---|
 | Offline-first operation | yes | no | yes | no | identity only | yes |
-| Tiered models with local fallback | yes | no | n/a | error driven | n/a | yes |
+| Tiered models with local fallback | yes | no | n/a | error driven | n/a | scripted |
 | Connectivity state machine with hysteresis | partial | no | no | no | partial | yes |
 | Per-dependency failure classification | not observed | no | no | partial | no | yes |
 | Capability manifest injected into model context | not observed | no | no | no | no | yes |
