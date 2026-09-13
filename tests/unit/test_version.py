@@ -41,6 +41,17 @@ def test_version_flag_prints_the_package_version(
     assert result.stdout == f"{deadreckoning.__version__}\n"
 
 
+def test_version_flag_exits_before_the_command_is_chosen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """init would otherwise run here, with no dr.toml to read."""
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(app, ["--version", "init"])
+    assert result.exit_code == 0
+    assert result.stdout == f"{deadreckoning.__version__}\n"
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_the_installed_metadata_matches_the_package() -> None:
     """A failure here means the editable install is older than the last bump: make install."""
     assert importlib.metadata.version("deadreckoning") == deadreckoning.__version__

@@ -70,7 +70,13 @@ def options(
         ),
     ] = False,
 ) -> None:
-    """Eager, so --version answers before any command goes looking for its config."""
+    """Group options are handled while the group parses, before any command is chosen.
+
+    --version exits there, so no command gets as far as loading its config. is_eager only
+    puts it ahead of other group options.
+
+    Callback evaluation order: https://click.palletsprojects.com/en/stable/advanced/#callback-evaluation-order
+    """
 
 
 @app.command()
