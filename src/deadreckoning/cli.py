@@ -29,6 +29,7 @@ from deadreckoning.cli_support import (
     stderr,
     stdout,
 )
+from deadreckoning.cli_sync import conflicts, resolve, sync
 from deadreckoning.health import REMEDIATION
 from deadreckoning.node import Node
 from deadreckoning.records import IdentityState, RecordKind
@@ -44,6 +45,9 @@ app.command()(chaos)
 app.command()(outbox)
 app.command()(approve)
 app.command()(reject)
+app.command()(sync)
+app.command()(conflicts)
+app.command()(resolve)
 
 
 @app.command()

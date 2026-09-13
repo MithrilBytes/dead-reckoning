@@ -100,9 +100,18 @@ CREATE TABLE IF NOT EXISTS clock (
 class Database:
     """Owns one connection and its lifetime."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, threadsafe: bool = False) -> None:
+        """`threadsafe` lets a connection be used from more than one thread.
+
+        Off by default, because a node is single threaded and the check is a real
+        guard there. The hub turns it on and serialises its own access: it handles
+        a request per thread, and a thread-bound connection would fail on every
+        request after the first.
+        """
         self.path = path
-        self.connection = sqlite3.connect(path, isolation_level=None)
+        self.connection = sqlite3.connect(
+            path, isolation_level=None, check_same_thread=not threadsafe
+        )
         self.connection.row_factory = sqlite3.Row
         self.connection.execute("PRAGMA journal_mode = WAL")
         self.connection.execute("PRAGMA synchronous = FULL")
@@ -128,10 +137,10 @@ class Database:
         self.close()
 
 
-def open_database(data_dir: Path) -> Database:
+def open_database(data_dir: Path, threadsafe: bool = False) -> Database:
     """Open, creating the directory and schema if this is a fresh node."""
     data_dir.mkdir(parents=True, exist_ok=True)
-    return Database(data_dir / "node.db")
+    return Database(data_dir / "node.db", threadsafe=threadsafe)
 
 
 def load_hlc(database: Database, node_id: str) -> tuple[int, int] | None:
