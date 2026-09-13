@@ -160,7 +160,7 @@ cp dr.example.toml dr.toml
 ./.venv/bin/dr verify
 ```
 
-Python 3.11 or newer. Runtime dependencies are httpx, pydantic, typer and rich.
+Python 3.13 or newer. Runtime dependencies are httpx, pydantic, typer and rich.
 
 ## Design
 
