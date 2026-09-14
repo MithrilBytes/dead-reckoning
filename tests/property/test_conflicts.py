@@ -197,7 +197,7 @@ def test_each_node_records_the_conflict_once() -> None:
     )
 
 
-# --- the properties S6 actually requires --------------------------------------
+# --- the properties conflict detection has to hold ----------------------------
 
 values = st.sampled_from(["P1", "P2", "P3"])
 nodes = st.sampled_from(["truck-7", "truck-12", "hq"])

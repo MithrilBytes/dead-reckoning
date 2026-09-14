@@ -152,7 +152,7 @@ def test_the_review_sees_the_field_report_the_truck_never_had(
 def test_the_review_disagrees_and_that_becomes_a_conflict(
     node: Node, islanded_decision: Record
 ) -> None:
-    """The milestone's gate. One REVIEW_DISAGREEMENT on ticket:T-104."""
+    """One REVIEW_DISAGREEMENT on ticket:T-104, and the original left as it was."""
     item = reviewable([islanded_decision], FRONTIER, review_above_rank=0)[0]
     verdict, diff = verdict_for(
         item,

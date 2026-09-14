@@ -2,8 +2,9 @@
 """The `dr` command line.
 
 Every command takes --json, because the first thing anyone does with a log like
-this is feed it to something else. Nothing here opens a network connection: the
-commands in this milestone read and write one local database and nothing more.
+this is feed it to something else. Only `dr sync` opens a network connection, to
+the hub or peer it is given. Every other command reads and writes one local
+database and nothing more.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from typing import Annotated, Any
 import typer
 from rich.table import Table
 
+from deadreckoning import __version__
 from deadreckoning.canonical import content_hash
 from deadreckoning.cli_chaos import chaos
 from deadreckoning.cli_outbox import approve, outbox, reject
@@ -48,6 +50,33 @@ app.command()(reject)
 app.command()(sync)
 app.command()(conflicts)
 app.command()(resolve)
+
+
+def _print_version(requested: bool) -> None:
+    if requested:
+        typer.echo(__version__)
+        raise typer.Exit
+
+
+@app.callback()
+def options(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_print_version,
+            is_eager=True,
+            help="Print the version and exit.",
+        ),
+    ] = False,
+) -> None:
+    """Group options are handled while the group parses, before any command is chosen.
+
+    --version exits there, so no command gets as far as loading its config. is_eager only
+    puts it ahead of other group options.
+
+    Callback evaluation order: https://click.palletsprojects.com/en/stable/advanced/#callback-evaluation-order
+    """
 
 
 @app.command()

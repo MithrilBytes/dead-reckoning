@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The commands this milestone ships, exercised through the runner.
+"""The local node commands, exercised through the runner.
 
-`dr status` and `dr verify` run under the egress guard like everything else, which
-is what backs the claim that they need no network.
+`dr status` and `dr verify` run under the egress guard like everything else, so
+either one reaching for the network fails the test.
 """
 
 from __future__ import annotations

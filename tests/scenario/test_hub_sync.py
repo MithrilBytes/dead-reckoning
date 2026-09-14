@@ -134,7 +134,7 @@ def test_a_tampered_record_is_refused_by_the_hub(hub: tuple[str, Hub], node: Nod
 def test_two_trucks_meet_through_the_hub_and_the_conflict_surfaces(
     hub: tuple[str, Hub], node: Node, truck12: Node
 ) -> None:
-    """The milestone's gate, over a real socket."""
+    """Two trucks disagree, sync through a real hub, and find one conflict."""
     url, _ = hub
     decide(node, "P2")
     decide(truck12, "P1")

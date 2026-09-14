@@ -16,6 +16,7 @@ import typer
 from rich.table import Table
 
 from deadreckoning.cli_support import ConfigOption, JsonOption, emit, fail, open_node, stdout
+from deadreckoning.node import Node
 from deadreckoning.outbox import Outbox, OutboxState
 from deadreckoning.records import RecordKind
 from deadreckoning.sync.client import SyncClient
@@ -73,7 +74,7 @@ def sync(
     emit(payload, as_json, render)
 
 
-def _configured_hub(node: Any) -> str | None:
+def _configured_hub(node: Node) -> str | None:
     hub = next((d for d in node.config.dependencies if str(d.type) in ("SYNC_HUB", "PEER")), None)
     return hub.base_url if hub else None
 

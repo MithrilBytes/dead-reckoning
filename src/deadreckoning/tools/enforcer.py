@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Deciding how a tool call is dispatched, and refusing a decision that ignored it.
 
-This is the part of the runtime that does not trust the model, and it is
-deliberate. Asking a model nicely not to answer from data it does not have works
-until the moment it matters: under pressure, with a plausible-looking gap, a model
-will fill it. So the dispatch path is chosen here from the tool's declared
-contract and the current health of its backend, and the model is told what
-happened rather than consulted about it.
+This is the part of the runtime that does not trust the model. Asking a model
+nicely not to answer from data it does not have works until the moment it
+matters: under pressure, with a plausible-looking gap, a model will fill it. So
+the dispatch path is chosen here from the tool's declared contract and the
+current health of its backend, and the model is told what happened instead of
+being consulted about it.
 
 The second half is the enforcement of abstention. A model that calls an
 unavailable tool, gets told it is unavailable, and then produces a confident final
@@ -29,7 +29,7 @@ USABLE = frozenset({HealthState.HEALTHY, HealthState.SLOW})
 
 
 class OutboxPort(Protocol):
-    """What the enforcer needs from the outbox, which arrives in M3.
+    """What the enforcer needs from the outbox.
 
     Narrow on purpose: the enforcer's job ends at recording the intent, and
     everything about draining it belongs to the outbox itself.
@@ -82,9 +82,9 @@ class ToolEnforcer:
     def backend_state(self, contract: ToolContract) -> HealthState:
         """A tool with no backend is always reachable; it depends on nothing.
 
-        An unprobed backend is treated as unreachable rather than as working.
-        UNKNOWN means nobody has checked, and acting on an unchecked dependency is
-        the assumption this runtime exists to avoid.
+        An unprobed backend is treated as unreachable, not as working. UNKNOWN
+        means nobody has checked, and acting on an unchecked dependency is the
+        assumption this runtime exists to avoid.
         """
         if contract.always_local:
             return HealthState.HEALTHY
@@ -117,9 +117,9 @@ class ToolEnforcer:
     def _local_availability(self, contract: ToolContract) -> tuple[Availability, str | None]:
         """LOCAL tools report on their freshest row, since the manifest is per tool.
 
-        A tool with no rows at all is unavailable rather than merely stale: there
-        is nothing to be stale about, and saying LOCAL would promise an answer
-        that does not exist.
+        A tool with no rows at all is unavailable, not merely stale: there is
+        nothing to be stale about, and saying LOCAL would promise an answer that
+        does not exist.
         """
         if contract.local_source is not None and self.store.count(contract.name) == 0:
             return Availability.LOCAL, None
@@ -128,7 +128,14 @@ class ToolEnforcer:
         return Availability.LOCAL, None
 
     def dispatch(self, name: str, args: dict[str, Any]) -> Dispatch:
-        """Run one call down whichever path its contract and the world allow."""
+        """Run one call down whichever path its contract and the world allow.
+
+        Only backend health and offline policy choose the path. Identity and
+        approval are not consulted here yet, so a call against a healthy backend
+        runs live whatever the identity state or the tool's approval setting.
+        They are applied only to queued calls, when the outbox entry is created
+        and again when the outbox drains.
+        """
         tool = self.registry.get(name)
         contract = tool.contract
         state = self.backend_state(contract)

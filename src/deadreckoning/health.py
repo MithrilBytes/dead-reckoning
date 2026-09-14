@@ -95,7 +95,11 @@ REMEDIATION: dict[FailureClass, str] = {
 
 @dataclass(frozen=True, slots=True)
 class BreakerPolicy:
-    """H3 defaults. Held as data so tests can drive a breaker without waiting."""
+    """Breaker defaults. Held as data so tests can drive a breaker without waiting.
+
+    The closed, open and half-open states follow the circuit breaker in Michael
+    Nygard, Release It! (Pragmatic Bookshelf, 2007).
+    """
 
     open_after_consecutive_failures: int = 3
     close_after_consecutive_successes: int = 2

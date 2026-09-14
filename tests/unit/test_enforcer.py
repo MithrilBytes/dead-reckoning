@@ -244,7 +244,7 @@ def test_the_rule_is_about_the_result_not_the_policy() -> None:
     """A LOCAL tool refused for staleness is as unavailable as a FAIL tool down.
 
     Scoping this to FAIL-policy tools would let the staleness path through, which
-    is the single thing the requirement exists to prevent.
+    is the single thing the rule exists to prevent.
     """
     dispatches = [Dispatch("weather", Availability.UNAVAILABLE, reason="past its staleness budget")]
     result = validate_decision(["weather"], dispatches, abstained=False)

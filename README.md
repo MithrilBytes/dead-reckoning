@@ -37,8 +37,9 @@ loopback.
 00:15  The SCADA link drops. A sensor ticket becomes an abstention with a
        conditional answer; a water pumping station is still called P1, because
        that answer never needed the sensor.
-00:30  Everything drops. A local model takes over, decisions are stamped rank 2,
-       priority changes are queued, and a crew dispatch waits for a person.
+00:30  Everything drops. A scripted stand-in for an on-board model answers,
+       decisions are stamped rank 2, priority changes are queued, and a crew
+       dispatch waits for a person.
 00:45  The other truck, also dark, has a field report the first one does not:
        same ticket, opposite call.
 01:00  The link returns. The dispatch does not fire, because headquarters got
@@ -58,7 +59,7 @@ again and eventually failing, or worse, proceeding without it. Nothing in a
 checkpoint says that a missing input should change what the agent concludes.
 
 Model routers fall back to another endpoint when one returns an error. That keeps
-a model answering, which is not the same as keeping the answers honest. A router
+a model answering, which is not the same as keeping the answers sound. A router
 does not know that the tool the model wanted is also gone, does not stamp which
 model actually answered onto the decision, and has no notion of going back to
 re-examine an answer once a better model is reachable again.
@@ -81,7 +82,7 @@ Legend: present, partial, not observed, or not applicable to that project.
 | Capability | Offline agent runtimes | Durable execution | Local-first sync | Model routers | Identity continuity | Dead Reckoning |
 |---|---|---|---|---|---|---|
 | Offline-first operation | yes | no | yes | no | identity only | yes |
-| Tiered models with local fallback | yes | no | n/a | error driven | n/a | yes |
+| Tiered models with local fallback | yes | no | n/a | error driven | n/a | scripted |
 | Connectivity state machine with hysteresis | partial | no | no | no | partial | yes |
 | Per-dependency failure classification | not observed | no | no | partial | no | yes |
 | Capability manifest injected into model context | not observed | no | no | no | no | yes |
@@ -89,7 +90,7 @@ Legend: present, partial, not observed, or not applicable to that project.
 | Typed offline tool contracts | not observed | no | no | no | no | yes |
 | Durable outbox for deferred side effects | not observed | activities | yes | no | no | yes |
 | Preconditions captured at deferral, rechecked at execution | not observed | no | no | no | no | yes |
-| Consequence-based human approval | yes | interrupts | no | no | yes | yes |
+| Consequence-based human approval | yes | interrupts | no | no | yes | partial |
 | Identity continuity with authority reduction | not observed | no | no | no | yes | partial |
 | Time-trust tracking, TLS errors read as clock skew | not observed | no | no | no | no | yes |
 | Model tier and mode stamped on every decision | not observed | no | no | no | no | yes |
@@ -105,12 +106,11 @@ Legend: present, partial, not observed, or not applicable to that project.
 Dead Reckoning sits above the network layer. Circuit breakers and retries keep a
 call alive. Sync engines keep data converging. Routers keep a model answering.
 Each assumes the plan was still the right plan. This is for the case where it was
-not: where a missing input should produce an abstention rather than an answer,
-where an action should wait for its justification to be rechecked rather than
-fire, where a decision made on a small model in the dark should be looked at again
-by a large one in the light, and where two isolated nodes reaching opposite
-conclusions should be a conflict for a human rather than a race for the last
-write.
+not: a missing input should produce an abstention instead of an answer, an action
+should wait until its justification has been rechecked, a decision made on a small
+model in the dark should be looked at again by a large one in the light, and two
+isolated nodes reaching opposite conclusions should become a conflict that a
+person settles.
 
 ## The concepts
 
@@ -135,7 +135,7 @@ that justified it. Before one executes, those conditions are checked again.
 decision can be found later and weighed.
 
 **Re-review** re-examines flagged decisions once a better model is reachable, with
-evidence merged from every node rather than only what the deciding node had.
+evidence merged from every node, not only what the deciding node had.
 
 **Conflict** is two decisions about the same thing that cannot both stand, made
 without either node having seen the other. It is surfaced, never resolved
@@ -160,7 +160,10 @@ cp dr.example.toml dr.toml
 ./.venv/bin/dr verify
 ```
 
-Python 3.11 or newer. Runtime dependencies are httpx, pydantic, typer and rich.
+Python 3.13 or newer. Runtime dependencies are httpx, pydantic, typer and rich.
+`make install` builds `.venv` with `python3.13` and pins the development tools to the
+exact versions in `constraints.txt`. Name a newer interpreter with
+`make install PYTHON=python3.14`. `make lock` refreshes those pins.
 
 ## Design
 
@@ -178,14 +181,16 @@ This is version 0.1 and a reference implementation. It is meant to be read.
 Not in scope: a general-purpose agent framework, physical actuation, hardware
 power sensing, cryptographic signatures (records are hash chained and a signer
 hook exists, unused), multi-tenancy, production hardening of the hub, or adapters
-for other agent frameworks. Conflict handling is deliberately narrow: set union
-for immutable records, and explicit conflict records for anything a person should
+for other agent frameworks. Conflict handling is kept narrow: set union for
+immutable records, and explicit conflict records for anything a person should
 decide.
 
-Known gaps are tracked as issues rather than hidden. The live path against a real
-model endpoint has not been exercised end to end; the scenario and the test suite
-run against scripted models, which is what makes them deterministic and what means
-they do not tell you how a particular model behaves.
+Among the known gaps: identity and approval are checked when a side effect is
+queued and again when the outbox drains, but not for a call that runs live against
+a healthy backend (`DESIGN.md` has the detail). There is also no client for a real
+model endpoint yet. The scenario and the test suite run against scripted models,
+which keeps them deterministic and says nothing about how a particular model
+behaves.
 
 ## License
 
